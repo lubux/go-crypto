@@ -51,6 +51,7 @@ type MessageDetails struct {
 	SignedBy                 *Key                // the key of the signer, if available.
 	LiteralData              *packet.LiteralData // the metadata of the contents
 	UnverifiedBody           io.Reader           // the contents of the message.
+	CheckRecipients          bool                // Indicates if the intended recipients should be checked
 
 	// If IsSigned is true and SignedBy is non-zero then the signature will
 	// be verified as UnverifiedBody is read. The signature cannot be
@@ -99,6 +100,7 @@ func ReadMessage(r io.Reader, keyring KeyRing, prompt PromptFunction, config *pa
 	packets := packet.NewReader(r)
 	md = new(MessageDetails)
 	md.IsEncrypted = true
+	md.CheckRecipients = config.IntendedRecipients()
 
 	// The message, if encrypted, starts with a number of packets
 	// containing an encrypted decryption key. The decryption key is either
@@ -119,7 +121,9 @@ ParsePackets:
 			// This packet contains the decryption key encrypted to a public key.
 			md.EncryptedToKeyIds = append(md.EncryptedToKeyIds, p.KeyId)
 			switch p.Algo {
-			case packet.PubKeyAlgoRSA, packet.PubKeyAlgoRSAEncryptOnly, packet.PubKeyAlgoElGamal, packet.PubKeyAlgoECDH, packet.PubKeyAlgoX25519, packet.PubKeyAlgoX448:
+			case packet.PubKeyAlgoRSA, packet.PubKeyAlgoRSAEncryptOnly,
+				packet.PubKeyAlgoElGamal, packet.PubKeyAlgoECDH,
+				packet.PubKeyAlgoX25519, packet.PubKeyAlgoX448:
 				break
 			default:
 				continue
@@ -407,6 +411,10 @@ func (scr *signatureCheckReader) Read(buf []byte) (int, error) {
 					if signatureError == nil {
 						signatureError = checkSignatureDetails(key, sig, scr.config)
 					}
+					if scr.md.IsEncrypted && !scr.md.IsSymmetricallyEncrypted && len(sig.IntendedRecipients) > 0 && scr.md.CheckRecipients && signatureError == nil {
+						// Check signature matches one of the recipients
+						signatureError = checkIntendedRecipientsMatch(&scr.md.DecryptedWith, sig)
+					}
 					scr.md.Signature = sig
 					scr.md.SignatureError = signatureError
 				} else {
@@ -633,6 +641,22 @@ func checkSignatureDetails(key *Key, signature *packet.Signature, config *packet
 		if sig.SigExpired(now) { // any of the relevant signatures are expired
 			return errors.ErrSignatureExpired
 		}
+	}
+	return nil
+}
+
+// checkIntendedRecipientsMatch checks if the fingerprint of the primary key matching the decryption key
+// is found in the signature's intended recipients list.
+func checkIntendedRecipientsMatch(decryptionKey *Key, sig *packet.Signature) error {
+	match := false
+	for _, recipient := range sig.IntendedRecipients {
+		if bytes.Equal(recipient.Fingerprint, decryptionKey.Entity.PrimaryKey.Fingerprint) {
+			match = true
+			break
+		}
+	}
+	if !match {
+		return errors.SignatureError("intended recipients in the signature does not match the decryption key")
 	}
 	return nil
 }

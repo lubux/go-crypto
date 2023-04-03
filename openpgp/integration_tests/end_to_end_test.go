@@ -163,7 +163,7 @@ func encDecTest(t *testing.T, from testVector, testVectors []testVector) {
 				t.Error(errDec)
 			}
 			buf := new(bytes.Buffer)
-			w, err := openpgp.Encrypt(buf, pkTo[:1], signer, hints, from.config)
+			w, err := openpgp.Encrypt(buf, pkTo[:1], nil, signer, hints, from.config)
 			if err != nil {
 				t.Fatalf("Error in Encrypt: %s", err)
 			}

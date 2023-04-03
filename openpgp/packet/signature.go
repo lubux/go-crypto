@@ -78,6 +78,7 @@ type Signature struct {
 	SignerUserId                                            *string
 	IsPrimaryId                                             *bool
 	Notations                                               []*Notation
+	IntendedRecipients                                      []*Recipient
 
 	// TrustLevel and TrustAmount can be set by the signer to assert that
 	// the key is not only valid but also trustworthy at the specified
@@ -338,6 +339,7 @@ const (
 	featuresSubpacket            signatureSubpacketType = 30
 	embeddedSignatureSubpacket   signatureSubpacketType = 32
 	issuerFingerprintSubpacket   signatureSubpacketType = 33
+	intendedRecipientSubpacket   signatureSubpacketType = 35
 	prefCipherSuitesSubpacket    signatureSubpacketType = 39
 )
 
@@ -584,6 +586,19 @@ func parseSignatureSubpacket(sig *Signature, subpacket []byte, isHashed bool) (r
 		} else {
 			*sig.IssuerKeyId = binary.BigEndian.Uint64(subpacket[13:21])
 		}
+	case intendedRecipientSubpacket:
+		// Intended Recipient Fingerprint
+		// https://datatracker.ietf.org/doc/html/draft-ietf-openpgp-crypto-refresh#name-intended-recipient-fingerpr
+		if len(subpacket) < 1 {
+			return nil, errors.StructuralError("invalid intended recipient fingerpring length")
+		}
+		version, length := subpacket[0], len(subpacket[1:])
+		if version >= 5 && length != 32 || version < 5 && length != 20 {
+			return nil, errors.StructuralError("invalid fingerprint length")
+		}
+		fingerprint := make([]byte, length)
+		copy(fingerprint, subpacket[1:])
+		sig.IntendedRecipients = append(sig.IntendedRecipients, &Recipient{int(version), fingerprint})
 	case prefCipherSuitesSubpacket:
 		// Preferred AEAD cipher suites
 		// See https://www.ietf.org/archive/id/draft-ietf-openpgp-crypto-refresh-07.html#name-preferred-aead-ciphersuites
@@ -1206,6 +1221,17 @@ func (sig *Signature) buildSubpackets(issuer PublicKey) (subpackets []outputSubp
 				notationDataSubpacket,
 				notation.IsCritical,
 				notation.getData(),
+			})
+	}
+
+	for _, recipient := range sig.IntendedRecipients {
+		subpackets = append(
+			subpackets,
+			outputSubpacket{
+				true,
+				intendedRecipientSubpacket,
+				true,
+				recipient.Serialize(),
 			})
 	}
 

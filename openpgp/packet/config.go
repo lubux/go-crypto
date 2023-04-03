@@ -113,6 +113,11 @@ type Config struct {
 	KnownNotations map[string]bool
 	// SignatureNotations is a list of Notations to be added to any signatures.
 	SignatureNotations []*Notation
+	// CheckIntendedRecipients is a flag that indicates if
+	// a decryption key for an encrypted and signed messages should be checked
+	// to be present in the signatures intended recipient list.
+	// if config is nil or flag is nil, it defaults to true
+	CheckIntendedRecipients *bool
 }
 
 func (c *Config) Random() io.Reader {
@@ -255,4 +260,11 @@ func (c *Config) V6() bool {
 		return false
 	}
 	return c.V6Keys
+}
+
+func (c *Config) IntendedRecipients() bool {
+	if c == nil || c.CheckIntendedRecipients == nil {
+		return true
+	}
+	return *c.CheckIntendedRecipients
 }

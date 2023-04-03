@@ -283,7 +283,7 @@ func TestEncryptWithCompression(t *testing.T) {
 		DefaultCompressionAlgo: packet.CompressionZIP,
 		CompressionConfig:      &packet.CompressionConfig{-1},
 	}
-	w, err := Encrypt(buf, kring[:1], nil, nil /* no hints */, config)
+	w, err := Encrypt(buf, kring[:1], nil, nil, nil /* no hints */, config)
 	if err != nil {
 		t.Errorf("error in encrypting plaintext: %s", err)
 		return
@@ -452,6 +452,107 @@ var testEncryptionTests = []struct {
 	},
 }
 
+func TestIntendedRecipientsEncryption(t *testing.T) {
+	var config = &packet.Config{
+		V6Keys:     true,
+		AEADConfig: &packet.AEADConfig{},
+		Algorithm:  packet.PubKeyAlgoEd25519,
+	}
+	sender, err := NewEntity("sender", "", "send@example.com", config)
+	if err != nil {
+		t.Errorf("failed to create entity: %s", err)
+		return
+	}
+
+	publicRecipient, err := NewEntity("publicRecipient", "", "publicRecipient@example.com", config)
+	if err != nil {
+		t.Errorf("failed to create entity: %s", err)
+		return
+	}
+
+	hiddenRecipient, err := NewEntity("hiddenRecipient", "", "hiddenRecipient@example.com", config)
+	if err != nil {
+		t.Errorf("failed to create entity: %s", err)
+		return
+	}
+
+	outputBuffer := new(bytes.Buffer)
+	pWriter, err := Encrypt(outputBuffer, []*Entity{publicRecipient}, []*Entity{hiddenRecipient}, sender, nil, config)
+	if err != nil {
+		t.Errorf("error in encrypt: %s", err)
+	}
+
+	const message = "testing"
+	_, err = pWriter.Write([]byte(message))
+	if err != nil {
+		t.Errorf("error writing plaintext: %s", err)
+	}
+
+	err = pWriter.Close()
+	if err != nil {
+		t.Errorf("error closing WriteCloser: %s", err)
+	}
+
+	encryptedMessage := make([]byte, len(outputBuffer.Bytes()))
+	copy(encryptedMessage, outputBuffer.Bytes())
+
+	md, err := ReadMessage(outputBuffer, EntityList{publicRecipient, sender}, nil /* no prompt */, config)
+	if err != nil {
+		t.Errorf("error reading message: %s", err)
+	}
+
+	// Check reading with public recipient
+	if !md.CheckRecipients {
+		t.Error("should check for intended recipient")
+	}
+	_, err = ioutil.ReadAll(md.UnverifiedBody)
+	if err != nil {
+		t.Errorf("error reading encrypted contents: %s", err)
+	}
+	if len(md.Signature.IntendedRecipients) == 0 ||
+		!bytes.Equal(md.Signature.IntendedRecipients[0].Fingerprint, publicRecipient.PrimaryKey.Fingerprint) {
+		t.Errorf("signature should contain %s as recipient", publicRecipient.PrimaryKey.Fingerprint)
+	}
+
+	// Check reading with hidden recipient
+	outputBuffer = new(bytes.Buffer)
+	outputBuffer.Write(encryptedMessage)
+	md, err = ReadMessage(outputBuffer, EntityList{hiddenRecipient, sender}, nil /* no prompt */, config)
+	if err != nil {
+		t.Errorf("error reading message: %s", err)
+	}
+	if !md.CheckRecipients {
+		t.Error("should check for intended recipient")
+	}
+	_, err = ioutil.ReadAll(md.UnverifiedBody)
+	if err != nil {
+		t.Errorf("error reading encrypted contents: %s", err)
+	}
+	if _, ok := md.SignatureError.(errors.SignatureError); !ok {
+		t.Error("hidden recipient should not be in the intended recipient list")
+	}
+
+	// Check reading with hidden recipient check disabled
+	outputBuffer = new(bytes.Buffer)
+	outputBuffer.Write(encryptedMessage)
+	check := false
+	config.CheckIntendedRecipients = &check
+	md, err = ReadMessage(outputBuffer, EntityList{hiddenRecipient, sender}, nil /* no prompt */, config)
+	if err != nil {
+		t.Errorf("error reading message: %s", err)
+	}
+	if md.CheckRecipients {
+		t.Error("should not check for intended recipient")
+	}
+	_, err = ioutil.ReadAll(md.UnverifiedBody)
+	if err != nil {
+		t.Errorf("error reading encrypted contents: %s", err)
+	}
+	if md.SignatureError != nil {
+		t.Error("singature verification should pass")
+	}
+}
+
 func TestEncryption(t *testing.T) {
 	for i, test := range testEncryptionTests {
 		kring, _ := ReadKeyRing(readerFromHex(test.keyRingHex))
@@ -502,7 +603,7 @@ func TestEncryption(t *testing.T) {
 			config.AEADConfig = &aeadConf
 		}
 
-		w, err := Encrypt(buf, kring[:1], signed, nil /* no hints */, config)
+		w, err := Encrypt(buf, kring[:1], nil, signed, nil /* no hints */, config)
 		if err != nil && config.AEAD() != nil && !test.okV6 {
 			// ElGamal is not allowed with v6
 			continue

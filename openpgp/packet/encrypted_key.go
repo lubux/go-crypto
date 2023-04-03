@@ -124,33 +124,20 @@ func (e *EncryptedKey) parse(r io.Reader) (err error) {
 		if _, err = e.encryptedMPI2.ReadFrom(r); err != nil {
 			return
 		}
-<<<<<<< HEAD
 	case PubKeyAlgoX25519:
 		e.ephemeralPublicX25519, e.encryptedSession, cipherFunction, err = x25519.DecodeFields(r, e.Version == 6)
-=======
-	case PubKeyAlgoX25519: 
-		e.ephemeralPublicX25519, e.encryptedSession, cipherFunction, err = x25519.DecodeFields(r, e.Version == 6)	
->>>>>>> 5c1c076 (Update PKESK to the latest version of the crypto refresh)
 		if err != nil {
 			return
 		}
 	case PubKeyAlgoX448:
-<<<<<<< HEAD
 		e.ephemeralPublicX448, e.encryptedSession, cipherFunction, err = x448.DecodeFields(r, e.Version == 6)
-=======
-		e.ephemeralPublicX448, e.encryptedSession, cipherFunction, err = x448.DecodeFields(r, e.Version == 6)	
->>>>>>> 5c1c076 (Update PKESK to the latest version of the crypto refresh)
 		if err != nil {
 			return
 		}
 	}
 	if e.Version < 6 {
 		switch e.Algo {
-<<<<<<< HEAD
 		case PubKeyAlgoX25519, PubKeyAlgoX448:
-=======
-		case PubKeyAlgoX25519, PubKeyAlgoX448: 
->>>>>>> 5c1c076 (Update PKESK to the latest version of the crypto refresh)
 			e.CipherFunc = CipherFunction(cipherFunction)
 			// Check for validiy is in the Decrypt method
 		}
@@ -330,7 +317,7 @@ func (e *EncryptedKey) Serialize(w io.Writer) error {
 // key, encrypted to pub.
 // If aeadSupported is set, PKESK v6 is used else v4.
 // If config is nil, sensible defaults will be used.
-func SerializeEncryptedKeyAEAD(w io.Writer, pub *PublicKey, cipherFunc CipherFunction, aeadSupported bool, key []byte, config *Config) error {
+func SerializeEncryptedKeyAEAD(w io.Writer, pub *PublicKey, cipherFunc CipherFunction, aeadSupported bool, key []byte, hidden bool, config *Config) error {
 	var buf [36]byte // max possible header size is v6
 	lenHeaderWritten := 1
 	version := 3
@@ -354,8 +341,12 @@ func SerializeEncryptedKeyAEAD(w io.Writer, pub *PublicKey, cipherFunc CipherFun
 
 	buf[0] = byte(version)
 
+	// If hidden is set, the key should be hidden
+	// An implementation MAY accept or use a Key ID of all zeros,
+	// or a key version of zero and no key fingerprint, to hide the intended decryption key.
+	// See Section 5.1.8. in the open pgp crypto refresh
 	if version == 6 {
-		if pub != nil {
+		if !hidden {
 			// A one-octet size of the following two fields.
 			buf[1] = byte(1 + len(pub.Fingerprint))
 			// A one octet key version number.
@@ -370,7 +361,9 @@ func SerializeEncryptedKeyAEAD(w io.Writer, pub *PublicKey, cipherFunc CipherFun
 			lenHeaderWritten += 1
 		}
 	} else {
-		binary.BigEndian.PutUint64(buf[1:9], pub.KeyId)
+		if !hidden {
+			binary.BigEndian.PutUint64(buf[1:9], pub.KeyId)
+		}
 		lenHeaderWritten += 8
 	}
 	buf[lenHeaderWritten] = byte(pub.PubKeyAlgo)
@@ -379,11 +372,7 @@ func SerializeEncryptedKeyAEAD(w io.Writer, pub *PublicKey, cipherFunc CipherFun
 	var keyBlock []byte
 	switch pub.PubKeyAlgo {
 	case PubKeyAlgoRSA, PubKeyAlgoRSAEncryptOnly, PubKeyAlgoElGamal, PubKeyAlgoECDH:
-<<<<<<< HEAD
 		lenKeyBlock := len(key) + 2
-=======
-		lenKeyBlock := len(key)+2
->>>>>>> 5c1c076 (Update PKESK to the latest version of the crypto refresh)
 		if version < 6 {
 			lenKeyBlock += 1 // cipher type included
 		}
@@ -392,11 +381,7 @@ func SerializeEncryptedKeyAEAD(w io.Writer, pub *PublicKey, cipherFunc CipherFun
 		if version < 6 {
 			keyBlock[0] = byte(cipherFunc)
 			keyOffset = 1
-<<<<<<< HEAD
 		}
-=======
-		} 
->>>>>>> 5c1c076 (Update PKESK to the latest version of the crypto refresh)
 		encodeChecksumKey(keyBlock[keyOffset:], key)
 	case PubKeyAlgoX25519, PubKeyAlgoX448:
 		// algorithm is added in plaintext below
@@ -425,8 +410,8 @@ func SerializeEncryptedKeyAEAD(w io.Writer, pub *PublicKey, cipherFunc CipherFun
 // key, encrypted to pub.
 // PKESKv6 is used if config.AEAD() is not nil.
 // If config is nil, sensible defaults will be used.
-func SerializeEncryptedKey(w io.Writer, pub *PublicKey, cipherFunc CipherFunction, key []byte, config *Config) error {
-	return SerializeEncryptedKeyAEAD(w, pub, cipherFunc, config.AEAD() != nil, key, config)
+func SerializeEncryptedKey(w io.Writer, pub *PublicKey, cipherFunc CipherFunction, key []byte, hidden bool, config *Config) error {
+	return SerializeEncryptedKeyAEAD(w, pub, cipherFunc, config.AEAD() != nil, key, hidden, config)
 }
 
 func serializeEncryptedKeyRSA(w io.Writer, rand io.Reader, header []byte, pub *rsa.PublicKey, keyBlock []byte) error {
@@ -560,11 +545,7 @@ func decodeChecksumKey(msg []byte) (key []byte, err error) {
 	expectedChecksum := uint16(msg[len(msg)-2])<<8 | uint16(msg[len(msg)-1])
 	checksum := checksumKeyMaterial(key)
 	if checksum != expectedChecksum {
-<<<<<<< HEAD
 		err = errors.StructuralError("session key checksum is incorrect")
-=======
-		err = errors.StructuralError("session key checksum is incorrect") 
->>>>>>> 5c1c076 (Update PKESK to the latest version of the crypto refresh)
 	}
 	return
 }
