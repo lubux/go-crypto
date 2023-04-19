@@ -124,20 +124,33 @@ func (e *EncryptedKey) parse(r io.Reader) (err error) {
 		if _, err = e.encryptedMPI2.ReadFrom(r); err != nil {
 			return
 		}
+<<<<<<< HEAD
 	case PubKeyAlgoX25519:
 		e.ephemeralPublicX25519, e.encryptedSession, cipherFunction, err = x25519.DecodeFields(r, e.Version == 6)
+=======
+	case PubKeyAlgoX25519: 
+		e.ephemeralPublicX25519, e.encryptedSession, cipherFunction, err = x25519.DecodeFields(r, e.Version == 6)	
+>>>>>>> 5c1c076 (Update PKESK to the latest version of the crypto refresh)
 		if err != nil {
 			return
 		}
 	case PubKeyAlgoX448:
+<<<<<<< HEAD
 		e.ephemeralPublicX448, e.encryptedSession, cipherFunction, err = x448.DecodeFields(r, e.Version == 6)
+=======
+		e.ephemeralPublicX448, e.encryptedSession, cipherFunction, err = x448.DecodeFields(r, e.Version == 6)	
+>>>>>>> 5c1c076 (Update PKESK to the latest version of the crypto refresh)
 		if err != nil {
 			return
 		}
 	}
 	if e.Version < 6 {
 		switch e.Algo {
+<<<<<<< HEAD
 		case PubKeyAlgoX25519, PubKeyAlgoX448:
+=======
+		case PubKeyAlgoX25519, PubKeyAlgoX448: 
+>>>>>>> 5c1c076 (Update PKESK to the latest version of the crypto refresh)
 			e.CipherFunc = CipherFunction(cipherFunction)
 			// Check for validiy is in the Decrypt method
 		}
@@ -366,7 +379,11 @@ func SerializeEncryptedKeyAEAD(w io.Writer, pub *PublicKey, cipherFunc CipherFun
 	var keyBlock []byte
 	switch pub.PubKeyAlgo {
 	case PubKeyAlgoRSA, PubKeyAlgoRSAEncryptOnly, PubKeyAlgoElGamal, PubKeyAlgoECDH:
+<<<<<<< HEAD
 		lenKeyBlock := len(key) + 2
+=======
+		lenKeyBlock := len(key)+2
+>>>>>>> 5c1c076 (Update PKESK to the latest version of the crypto refresh)
 		if version < 6 {
 			lenKeyBlock += 1 // cipher type included
 		}
@@ -375,7 +392,11 @@ func SerializeEncryptedKeyAEAD(w io.Writer, pub *PublicKey, cipherFunc CipherFun
 		if version < 6 {
 			keyBlock[0] = byte(cipherFunc)
 			keyOffset = 1
+<<<<<<< HEAD
 		}
+=======
+		} 
+>>>>>>> 5c1c076 (Update PKESK to the latest version of the crypto refresh)
 		encodeChecksumKey(keyBlock[keyOffset:], key)
 	case PubKeyAlgoX25519, PubKeyAlgoX448:
 		// algorithm is added in plaintext below
@@ -539,7 +560,11 @@ func decodeChecksumKey(msg []byte) (key []byte, err error) {
 	expectedChecksum := uint16(msg[len(msg)-2])<<8 | uint16(msg[len(msg)-1])
 	checksum := checksumKeyMaterial(key)
 	if checksum != expectedChecksum {
+<<<<<<< HEAD
 		err = errors.StructuralError("session key checksum is incorrect")
+=======
+		err = errors.StructuralError("session key checksum is incorrect") 
+>>>>>>> 5c1c076 (Update PKESK to the latest version of the crypto refresh)
 	}
 	return
 }
