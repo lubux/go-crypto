@@ -12,7 +12,7 @@ import (
 // LiteralData represents an encrypted file. See RFC 4880, section 5.9.
 type LiteralData struct {
 	Format   uint8
-	IsBinary bool
+	IsUTF8   bool
 	FileName string
 	Time     uint32 // Unix epoch time. Either creation time or modification time. 0 means undefined.
 	Body     io.Reader
@@ -33,7 +33,7 @@ func (l *LiteralData) parse(r io.Reader) (err error) {
 	}
 
 	l.Format = buf[0]
-	l.IsBinary = l.Format == 'b'
+	l.IsUTF8 = l.Format == 'u'
 	fileNameLen := int(buf[1])
 
 	_, err = readFull(r, buf[:fileNameLen])
@@ -56,11 +56,11 @@ func (l *LiteralData) parse(r io.Reader) (err error) {
 // SerializeLiteral serializes a literal data packet to w and returns a
 // WriteCloser to which the data itself can be written and which MUST be closed
 // on completion. The fileName is truncated to 255 bytes.
-func SerializeLiteral(w io.WriteCloser, isBinary bool, fileName string, time uint32) (plaintext io.WriteCloser, err error) {
+func SerializeLiteral(w io.WriteCloser, isUTF8 bool, fileName string, time uint32) (plaintext io.WriteCloser, err error) {
 	var buf [4]byte
-	buf[0] = 't'
-	if isBinary {
-		buf[0] = 'b'
+	buf[0] = 'b'
+	if isUTF8 {
+		buf[0] = 'u'
 	}
 	if len(fileName) > 255 {
 		fileName = fileName[:255]

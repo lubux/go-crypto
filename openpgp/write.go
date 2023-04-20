@@ -99,8 +99,8 @@ func detachSign(w io.Writer, signer *Entity, message io.Reader, sigType packet.S
 // FileHints contains metadata about encrypted files. This metadata is, itself,
 // encrypted.
 type FileHints struct {
-	// IsBinary can be set to hint that the contents are binary data.
-	IsBinary bool
+	// IsUTF8 can be set to hint that the contents are utf8 encoded data
+	IsUTF8 bool
 	// FileName hints at the name of the file that should be written. It's
 	// truncated to 255 bytes if longer. It may be empty to suggest that the
 	// file should not be written to disk. It may be equal to "_CONSOLE" to
@@ -150,7 +150,7 @@ func SymmetricallyEncrypt(ciphertext io.Writer, passphrase []byte, hints *FileHi
 	if !hints.ModTime.IsZero() {
 		epochSeconds = uint32(hints.ModTime.Unix())
 	}
-	return packet.SerializeLiteral(literalData, hints.IsBinary, hints.FileName, epochSeconds)
+	return packet.SerializeLiteral(literalData, hints.IsUTF8, hints.FileName, epochSeconds)
 }
 
 // intersectPreferences mutates and returns a prefix of a that contains only
@@ -322,7 +322,7 @@ func writeAndSign(payload io.WriteCloser, candidateHashes []uint8, signed *Entit
 	if !hints.ModTime.IsZero() {
 		epochSeconds = uint32(hints.ModTime.Unix())
 	}
-	literalData, err := packet.SerializeLiteral(w, hints.IsBinary, hints.FileName, epochSeconds)
+	literalData, err := packet.SerializeLiteral(w, hints.IsUTF8, hints.FileName, epochSeconds)
 	if err != nil {
 		return nil, err
 	}
@@ -333,12 +333,12 @@ func writeAndSign(payload io.WriteCloser, candidateHashes []uint8, signed *Entit
 			return nil, err
 		}
 		metadata := &packet.LiteralData{
-			Format:   't',
+			Format:   'b',
 			FileName: hints.FileName,
 			Time:     epochSeconds,
 		}
-		if hints.IsBinary {
-			metadata.Format = 'b'
+		if hints.IsUTF8 {
+			metadata.Format = 'u'
 		}
 		return signatureWriter{payload, literalData, hash, wrappedHash, h, salt, signer, sigType, config, metadata}, nil
 	}
