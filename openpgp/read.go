@@ -41,17 +41,18 @@ func readArmored(r io.Reader, expectedType string) (body io.Reader, err error) {
 // MessageDetails contains the result of parsing an OpenPGP encrypted and/or
 // signed message.
 type MessageDetails struct {
-	IsEncrypted              bool                // true if the message was encrypted.
-	EncryptedToKeyIds        []uint64            // the list of recipient key ids.
-	IsSymmetricallyEncrypted bool                // true if a passphrase could have decrypted the message.
-	DecryptedWith            Key                 // the private key used to decrypt the message, if any.
-	IsSigned                 bool                // true if the message is signed.
-	SignedByKeyId            uint64              // the key id of the signer, if any.
-	SignedByFingerprint      []byte              // the key fingerprint of the signer, if any. (only v6)
-	SignedBy                 *Key                // the key of the signer, if available.
-	LiteralData              *packet.LiteralData // the metadata of the contents
-	UnverifiedBody           io.Reader           // the contents of the message.
-	CheckRecipients          bool                // Indicates if the intended recipients should be checked
+	IsEncrypted              bool                 // true if the message was encrypted.
+	EncryptedToKeyIds        []uint64             // the list of recipient key ids.
+	IsSymmetricallyEncrypted bool                 // true if a passphrase could have decrypted the message.
+	DecryptedWith            Key                  // the private key used to decrypt the message, if any.
+	IsSigned                 bool                 // true if the message is signed.
+	SignedByKeyId            uint64               // the key id of the signer, if any.
+	SignedByFingerprint      []byte               // the key fingerprint of the signer, if any. (only v6)
+	SignedBy                 *Key                 // the key of the signer, if available.
+	SignedWithType           packet.SignatureType // the type of the signature, if any.
+	LiteralData              *packet.LiteralData  // the metadata of the contents
+	UnverifiedBody           io.Reader            // the contents of the message.
+	CheckRecipients          bool                 // Indicates if the intended recipients should be checked
 
 	// If IsSigned is true and SignedBy is non-zero then the signature will
 	// be verified as UnverifiedBody is read. The signature cannot be
@@ -275,7 +276,7 @@ FindLiteralData:
 			if p.IsLast {
 				prevLast = true
 			}
-
+			md.SignedWithType = p.SigType
 			h, wrappedHash, err = hashForSignature(p.Hash, p.SigType, p.Salt)
 			if err != nil {
 				md.SignatureError = err
