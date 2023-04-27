@@ -47,6 +47,21 @@ func ArmoredDetachSignText(w io.Writer, signer *Entity, message io.Reader, confi
 	return armoredDetachSign(w, signer, message, packet.SigTypeText, config)
 }
 
+// DetachSignWriter signs a message with the private key from a signer (which must
+// already have been decrypted) and writes the signature to w.
+// DetachSignWriter returns a WriteCloser to which the message can be written to.
+// The resulting WriteCloser must be closed after the contents of the message have
+// been written. If utf8Message is set to true, the line endings of the message are
+// canonicalised and the type of the signture will be SigTypeText.
+// If config is nil, sensible defaults will be used.
+func DetachSignWriter(w io.Writer, signer *Entity, utf8Message bool, config *packet.Config) (io.WriteCloser, error) {
+	sigType := packet.SigTypeBinary
+	if utf8Message {
+		sigType = packet.SigTypeText
+	}
+	return detachSignWithWriter(w, signer, sigType, config)
+}
+
 func armoredDetachSign(w io.Writer, signer *Entity, message io.Reader, sigType packet.SignatureType, config *packet.Config) (err error) {
 	out, err := armor.Encode(w, SignatureType, nil)
 	if err != nil {
@@ -60,18 +75,51 @@ func armoredDetachSign(w io.Writer, signer *Entity, message io.Reader, sigType p
 }
 
 func detachSign(w io.Writer, signer *Entity, message io.Reader, sigType packet.SignatureType, config *packet.Config) (err error) {
+	ptWriter, err := detachSignWithWriter(w, signer, sigType, config)
+	if err != nil {
+		return
+	}
+	_, err = io.Copy(ptWriter, message)
+	if err != nil {
+		return
+	}
+	return ptWriter.Close()
+}
+
+type detachSignWriter struct {
+	signatureWriter io.Writer
+	wrappedHasher   hash.Hash
+	hasher          hash.Hash
+	signer          *packet.PrivateKey
+	sig             *packet.Signature
+	config          *packet.Config
+}
+
+func (s detachSignWriter) Write(data []byte) (int, error) {
+	return s.wrappedHasher.Write(data)
+}
+
+func (s detachSignWriter) Close() error {
+	err := s.sig.Sign(s.hasher, s.signer, s.config)
+	if err != nil {
+		return err
+	}
+	return s.sig.Serialize(s.signatureWriter)
+}
+
+func detachSignWithWriter(w io.Writer, signer *Entity, sigType packet.SignatureType, config *packet.Config) (ptWriter io.WriteCloser, err error) {
 	signingKey, ok := signer.SigningKeyById(config.Now(), config.SigningKey())
 	if !ok {
-		return errors.InvalidArgumentError("no valid signing keys")
+		return nil, errors.InvalidArgumentError("no valid signing keys")
 	}
 	if signingKey.PrivateKey == nil {
-		return errors.InvalidArgumentError("signing key doesn't have a private key")
+		return nil, errors.InvalidArgumentError("signing key doesn't have a private key")
 	}
 	if signingKey.PrivateKey.Encrypted {
-		return errors.InvalidArgumentError("signing key is encrypted")
+		return nil, errors.InvalidArgumentError("signing key is encrypted")
 	}
 	if _, ok := algorithm.HashToHashId(config.Hash()); !ok {
-		return errors.InvalidArgumentError("invalid hash function")
+		return nil, errors.InvalidArgumentError("invalid hash function")
 	}
 
 	sig := createSignaturePacket(signingKey.PublicKey, sigType, config)
@@ -84,16 +132,14 @@ func detachSign(w io.Writer, signer *Entity, message io.Reader, sigType packet.S
 	if err != nil {
 		return
 	}
-	if _, err = io.Copy(wrappedHash, message); err != nil {
-		return err
-	}
-
-	err = sig.Sign(h, signingKey.PrivateKey, config)
-	if err != nil {
-		return
-	}
-
-	return sig.Serialize(w)
+	return &detachSignWriter{
+		signatureWriter: w,
+		hasher:          h,
+		wrappedHasher:   wrappedHash,
+		signer:          signingKey.PrivateKey,
+		sig:             sig,
+		config:          config,
+	}, nil
 }
 
 // FileHints contains metadata about encrypted files. This metadata is, itself,
