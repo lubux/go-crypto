@@ -107,7 +107,7 @@ func TestSigning(t *testing.T) {
 	for i, test := range signingTests {
 		var buf bytes.Buffer
 
-		plaintext, err := Encode(&buf, keyring[0].PrivateKey, nil)
+		plaintext, err := Encode(&buf, keyring[0].PrivateKey, nil, nil)
 		if err != nil {
 			t.Errorf("#%d: error from Encode: %s", i, err)
 			continue
@@ -182,7 +182,7 @@ func testMultiSign(t *testing.T, v6 bool) {
 
 			input := []byte("this is random text\r\n4 17")
 			var output bytes.Buffer
-			w, err := EncodeMulti(&output, signKeys, nil)
+			w, err := EncodeMulti(&output, signKeys, nil, nil)
 			if err != nil {
 				t.Errorf("EncodeMulti (%s) failed: %v", desc, err)
 			}

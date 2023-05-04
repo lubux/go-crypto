@@ -203,11 +203,12 @@ func Decode(data []byte) (b *Block, rest []byte) {
 // When closed, an armored signature is created and written to complete the
 // message.
 type dashEscaper struct {
-	buffered *bufio.Writer
-	hashers  []hash.Hash // one per key in privateKeys
-	hashType crypto.Hash
-	toHash   io.Writer // writes to all the hashes in hashers
-	salts    [][]byte  // salts for the signatures if v6
+	buffered    *bufio.Writer
+	hashers     []hash.Hash // one per key in privateKeys
+	hashType    crypto.Hash
+	toHash      io.Writer         // writes to all the hashes in hashers
+	salts       [][]byte          // salts for the signatures if v6
+	armorHeader map[string]string // Armor headers
 
 	atBeginningOfLine bool
 	isFirstLine       bool
@@ -299,7 +300,7 @@ func (d *dashEscaper) Close() (err error) {
 		}
 	}
 
-	out, err := armor.Encode(d.buffered, "PGP SIGNATURE", nil)
+	out, err := armor.Encode(d.buffered, "PGP SIGNATURE", d.armorHeader)
 	if err != nil {
 		return
 	}
@@ -343,14 +344,14 @@ func (d *dashEscaper) Close() (err error) {
 
 // Encode returns a WriteCloser which will clear-sign a message with privateKey
 // and write it to w. If config is nil, sensible defaults are used.
-func Encode(w io.Writer, privateKey *packet.PrivateKey, config *packet.Config) (plaintext io.WriteCloser, err error) {
-	return EncodeMulti(w, []*packet.PrivateKey{privateKey}, config)
+func Encode(w io.Writer, privateKey *packet.PrivateKey, config *packet.Config, headers map[string]string) (plaintext io.WriteCloser, err error) {
+	return EncodeMulti(w, []*packet.PrivateKey{privateKey}, config, headers)
 }
 
 // EncodeMulti returns a WriteCloser which will clear-sign a message with all the
 // private keys indicated and write it to w. If config is nil, sensible defaults
 // are used.
-func EncodeMulti(w io.Writer, privateKeys []*packet.PrivateKey, config *packet.Config) (plaintext io.WriteCloser, err error) {
+func EncodeMulti(w io.Writer, privateKeys []*packet.PrivateKey, config *packet.Config, headers map[string]string) (plaintext io.WriteCloser, err error) {
 	for _, k := range privateKeys {
 		if k.Encrypted {
 			return nil, errors.InvalidArgumentError(fmt.Sprintf("signing key %s is encrypted", k.KeyIdString()))
@@ -412,11 +413,12 @@ func EncodeMulti(w io.Writer, privateKeys []*packet.PrivateKey, config *packet.C
 	}
 
 	plaintext = &dashEscaper{
-		buffered: buffered,
-		hashers:  hashers,
-		hashType: hashType,
-		toHash:   toHash,
-		salts:    salts,
+		buffered:    buffered,
+		hashers:     hashers,
+		hashType:    hashType,
+		toHash:      toHash,
+		salts:       salts,
+		armorHeader: headers,
 
 		atBeginningOfLine: true,
 		isFirstLine:       true,
