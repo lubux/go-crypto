@@ -52,7 +52,7 @@ func ArmoredDetachSignText(w io.Writer, signer *Entity, message io.Reader, confi
 // DetachSignWriter returns a WriteCloser to which the message can be written to.
 // The resulting WriteCloser must be closed after the contents of the message have
 // been written. If utf8Message is set to true, the line endings of the message are
-// canonicalised and the type of the signture will be SigTypeText.
+// canonicalised and the type of the signature will be SigTypeText.
 // If config is nil, sensible defaults will be used.
 func DetachSignWriter(w io.Writer, signer *Entity, utf8Message bool, config *packet.Config) (io.WriteCloser, error) {
 	sigType := packet.SigTypeBinary
@@ -156,47 +156,101 @@ type FileHints struct {
 	ModTime time.Time
 }
 
+type EncryptParams struct {
+	// KeyWriter is a Writer to which the encrypted
+	// session keys are written to.
+	// If nil, DataWriter is used instead.
+	KeyWriter io.Writer
+	// Hints contains file metadata for the literal data packet.
+	// If nil, default is used.
+	Hints *FileHints
+	// Signed contains the private keys to produce signatures with
+	// If nil, no signatures are created
+	Signed *Entity
+	// TextSig indicates if signatures of type SigTypeText should be produced
+	TextSig bool
+	// SessionKey provides a session key to be used for encryption.
+	// If nil, a one-time session key is generated
+	SessionKey []byte
+	// Config provides the config to be used.
+	// If Config is nil, sensible defaults will be used.
+	Config *packet.Config
+}
+
 // SymmetricallyEncrypt acts like gpg -c: it encrypts a file with a passphrase.
 // The resulting WriteCloser must be closed after the contents of the file have
 // been written.
 // If config is nil, sensible defaults will be used.
 func SymmetricallyEncrypt(ciphertext io.Writer, passphrase []byte, hints *FileHints, config *packet.Config) (plaintext io.WriteCloser, err error) {
-	if hints == nil {
-		hints = &FileHints{}
-	}
+	return SymmetricallyEncryptWithParams(passphrase, ciphertext, &EncryptParams{
+		Hints:  hints,
+		Config: config,
+	})
+}
 
-	key, err := packet.SerializeSymmetricKeyEncrypted(ciphertext, passphrase, config)
+// SymmetricallyEncryptWithParams acts like SymmetricallyEncrypt: but provides more configuration options
+// EncryptParams provides the optional parameters.
+// The resulting WriteCloser must be closed after the contents of the file have been written.
+func SymmetricallyEncryptWithParams(passphrase []byte, dataWriter io.Writer, params *EncryptParams) (plaintext io.WriteCloser, err error) {
+	if params == nil {
+		params = &EncryptParams{}
+	}
+	return symmetricallyEncrypt(passphrase, dataWriter, params)
+}
+
+func symmetricallyEncrypt(passphrase []byte, dataWriter io.Writer, params *EncryptParams) (plaintext io.WriteCloser, err error) {
+	if params.KeyWriter == nil {
+		params.KeyWriter = dataWriter
+	}
+	if params.Hints == nil {
+		params.Hints = &FileHints{}
+	}
+	if params.SessionKey == nil {
+		params.SessionKey, err = packet.SerializeSymmetricKeyEncrypted(params.KeyWriter, passphrase, params.Config)
+		defer func() {
+			// zero the session key after we are done
+			for i, _ := range params.SessionKey {
+				params.SessionKey[i] = 0
+			}
+			params.SessionKey = nil
+		}()
+	} else {
+		err = packet.SerializeSymmetricKeyEncryptedReuseKey(params.KeyWriter, params.SessionKey, passphrase, params.Config)
+	}
 	if err != nil {
 		return
 	}
-
-	var w io.WriteCloser
+	config := params.Config
+	candidateCompression := []uint8{uint8(config.Compression())}
+	candidateHashes := []uint8{hashToHashId(config.Hash())}
 	cipherSuite := packet.CipherSuite{
 		Cipher: config.Cipher(),
 		Mode:   config.AEAD().Mode(),
 	}
-	w, err = packet.SerializeSymmetricallyEncrypted(ciphertext, config.Cipher(), config.AEAD() != nil, cipherSuite, key, config)
-	if err != nil {
-		return
-	}
-
-	literalData := w
-	if algo := config.Compression(); algo != packet.CompressionNone {
-		var compConfig *packet.CompressionConfig
-		if config != nil {
-			compConfig = config.CompressionConfig
+	if params.Signed != nil {
+		// Check what the preferred hashes are for the signing key
+		candidateHashes = []uint8{
+			hashToHashId(crypto.SHA256),
+			hashToHashId(crypto.SHA384),
+			hashToHashId(crypto.SHA512),
+			hashToHashId(crypto.SHA3_256),
+			hashToHashId(crypto.SHA3_512),
 		}
-		literalData, err = packet.SerializeCompressed(w, algo, compConfig)
-		if err != nil {
-			return
+		defaultHashes := candidateHashes[0:1]
+		primarySelfSignature, _ := params.Signed.PrimarySelfSignature()
+		if primarySelfSignature == nil {
+			return nil, errors.InvalidArgumentError("signed entity has no self-signature")
+		}
+		preferredHashes := primarySelfSignature.PreferredHash
+		if len(preferredHashes) == 0 {
+			preferredHashes = defaultHashes
+		}
+		candidateHashes = intersectPreferences(candidateHashes, preferredHashes)
+		if len(candidateHashes) == 0 {
+			candidateHashes = []uint8{hashToHashId(crypto.SHA256)}
 		}
 	}
-
-	var epochSeconds uint32
-	if !hints.ModTime.IsZero() {
-		epochSeconds = uint32(hints.ModTime.Unix())
-	}
-	return packet.SerializeLiteral(literalData, hints.IsUTF8, hints.FileName, epochSeconds)
+	return encryptDataAndSign(dataWriter, params, candidateHashes, candidateCompression, config.Cipher(), config.AEAD() != nil, cipherSuite, nil)
 }
 
 // intersectPreferences mutates and returns a prefix of a that contains only
@@ -241,15 +295,35 @@ func hashToHashId(h crypto.Hash) uint8 {
 	return v
 }
 
+// EncryptWithParams encrypts a message to a number of recipients and, optionally,
+// signs it. The resulting WriteCloser must be closed after the contents of the file have been written.
+// The to argument contains recipients that are explicitly mentioned in signatures and encrypted keys,
+// whereas the toHidden argument contains recipients that will be hidden and not mentioned.
+// Params contains all optional parameters.
+func EncryptWithParams(ciphertext io.Writer, to, toHidden []*Entity, params *EncryptParams) (plaintext io.WriteCloser, err error) {
+	if params == nil {
+		params = &EncryptParams{}
+	}
+	if params.KeyWriter == nil {
+		params.KeyWriter = ciphertext
+	}
+	return encrypt(to, toHidden, ciphertext, params)
+}
+
 // EncryptText encrypts a message to a number of recipients and, optionally,
 // signs it. Optional information is contained in 'hints', also encrypted, that
 // aids the recipients in processing the message. The resulting WriteCloser
 // must be closed after the contents of the file have been written. If config
-// The to argument contains recipients that are explicetly mentioned in signatures and encrypted keys,
-// whereas the toHidden argument contains recipents that will be hidden and not mentioned.
+// The to argument contains recipients that are explicitly mentioned in signatures and encrypted keys,
+// whereas the toHidden argument contains recipients that will be hidden and not mentioned.
 // is nil, sensible defaults will be used. The signing is done in text mode.
 func EncryptText(ciphertext io.Writer, to, toHidden []*Entity, signed *Entity, hints *FileHints, config *packet.Config) (plaintext io.WriteCloser, err error) {
-	return encrypt(ciphertext, ciphertext, to, toHidden, signed, hints, packet.SigTypeText, config)
+	return EncryptWithParams(ciphertext, to, toHidden, &EncryptParams{
+		Signed:  signed,
+		Hints:   hints,
+		Config:  config,
+		TextSig: true,
+	})
 }
 
 // Encrypt encrypts a message to a number of recipients and, optionally, signs
@@ -260,7 +334,11 @@ func EncryptText(ciphertext io.Writer, to, toHidden []*Entity, signed *Entity, h
 // whereas the toHidden argument contains recipents that will be hidden and not mentioned.
 // If config is nil, sensible defaults will be used.
 func Encrypt(ciphertext io.Writer, to, toHidden []*Entity, signed *Entity, hints *FileHints, config *packet.Config) (plaintext io.WriteCloser, err error) {
-	return encrypt(ciphertext, ciphertext, to, toHidden, signed, hints, packet.SigTypeBinary, config)
+	return EncryptWithParams(ciphertext, to, toHidden, &EncryptParams{
+		Signed: signed,
+		Hints:  hints,
+		Config: config,
+	})
 }
 
 // EncryptSplit encrypts a message to a number of recipients and, optionally, signs
@@ -271,7 +349,12 @@ func Encrypt(ciphertext io.Writer, to, toHidden []*Entity, signed *Entity, hints
 // whereas the toHidden argument contains recipents that will be hidden and not mentioned.
 // If config is nil, sensible defaults will be used.
 func EncryptSplit(keyWriter io.Writer, dataWriter io.Writer, to, toHidden []*Entity, signed *Entity, hints *FileHints, config *packet.Config) (plaintext io.WriteCloser, err error) {
-	return encrypt(keyWriter, dataWriter, to, toHidden, signed, hints, packet.SigTypeBinary, config)
+	return EncryptWithParams(dataWriter, to, toHidden, &EncryptParams{
+		KeyWriter: keyWriter,
+		Signed:    signed,
+		Hints:     hints,
+		Config:    config,
+	})
 }
 
 // EncryptTextSplit encrypts a message to a number of recipients and, optionally, signs
@@ -282,7 +365,13 @@ func EncryptSplit(keyWriter io.Writer, dataWriter io.Writer, to, toHidden []*Ent
 // whereas the toHidden argument contains recipents that will be hidden and not mentioned.
 // If config is nil, sensible defaults will be used.
 func EncryptTextSplit(keyWriter io.Writer, dataWriter io.Writer, to, toHidden []*Entity, signed *Entity, hints *FileHints, config *packet.Config) (plaintext io.WriteCloser, err error) {
-	return encrypt(keyWriter, dataWriter, to, toHidden, signed, hints, packet.SigTypeText, config)
+	return EncryptWithParams(dataWriter, to, toHidden, &EncryptParams{
+		KeyWriter: keyWriter,
+		Signed:    signed,
+		Hints:     hints,
+		Config:    config,
+		TextSig:   true,
+	})
 }
 
 // writeAndSign writes the data as a payload package and, optionally, signs
@@ -400,11 +489,13 @@ func writeAndSign(payload io.WriteCloser, candidateHashes []uint8, signed *Entit
 }
 
 // encrypt encrypts a message to a number of recipients and, optionally, signs
-// it. hints contains optional information, that is also encrypted, that aids
-// the recipients in processing the message. The resulting WriteCloser must
+// it. The resulting WriteCloser must
 // be closed after the contents of the file have been written.
-// If config is nil, sensible defaults will be used.
-func encrypt(keyWriter io.Writer, dataWriter io.Writer, to, toHidden []*Entity, signed *Entity, hints *FileHints, sigType packet.SignatureType, config *packet.Config) (plaintext io.WriteCloser, err error) {
+func encrypt(
+	to, toHidden []*Entity,
+	dataWriter io.Writer,
+	params *EncryptParams,
+) (plaintext io.WriteCloser, err error) {
 	if len(to)+len(toHidden) == 0 {
 		return nil, errors.InvalidArgumentError("no encryption recipient provided")
 	}
@@ -442,6 +533,7 @@ func encrypt(keyWriter io.Writer, dataWriter io.Writer, to, toHidden []*Entity, 
 
 	encryptKeys := make([]Key, len(to)+len(toHidden))
 
+	config := params.Config
 	// AEAD is used only if config enables it and every key supports it
 	aeadSupported := config.AEAD() != nil
 
@@ -504,31 +596,53 @@ func encrypt(keyWriter io.Writer, dataWriter io.Writer, to, toHidden []*Entity, 
 		}
 	}
 
-	symKey := make([]byte, cipher.KeySize())
-	if _, err := io.ReadFull(config.Random(), symKey); err != nil {
-		return nil, err
+	if params.SessionKey == nil {
+		params.SessionKey = make([]byte, cipher.KeySize())
+		if _, err := io.ReadFull(config.Random(), params.SessionKey); err != nil {
+			return nil, err
+		}
+		defer func() {
+			// zero the session key after we are done
+			for i, _ := range params.SessionKey {
+				params.SessionKey[i] = 0
+			}
+			params.SessionKey = nil
+		}()
 	}
 
 	for idx, key := range encryptKeys {
 		// hide the keys of the hidden recipients
 		hidden := idx >= len(to)
-		if err := packet.SerializeEncryptedKeyAEAD(keyWriter, key.PublicKey, cipher, aeadSupported, symKey, hidden, config); err != nil {
+		if err := packet.SerializeEncryptedKeyAEAD(params.KeyWriter, key.PublicKey, cipher, aeadSupported, params.SessionKey, hidden, config); err != nil {
 			return nil, err
 		}
 	}
 
-	var payload io.WriteCloser
-	payload, err = packet.SerializeSymmetricallyEncrypted(dataWriter, cipher, aeadSupported, aeadCipherSuite, symKey, config)
+	return encryptDataAndSign(dataWriter, params, candidateHashes, candidateCompression, cipher, aeadSupported, aeadCipherSuite, intendedRecipients)
+}
+
+func encryptDataAndSign(
+	dataWriter io.Writer,
+	params *EncryptParams,
+	candidateHashes, candidateCompression []uint8,
+	cipher packet.CipherFunction,
+	aeadSupported bool,
+	aeadCipherSuite packet.CipherSuite,
+	intendedRecipients []*packet.Recipient,
+) (plaintext io.WriteCloser, err error) {
+	sigType := packet.SigTypeBinary
+	if params.TextSig {
+		sigType = packet.SigTypeText
+	}
+	payload, err := packet.SerializeSymmetricallyEncrypted(dataWriter, cipher, aeadSupported, aeadCipherSuite, params.SessionKey, params.Config)
 	if err != nil {
 		return
 	}
-
-	payload, err = handleCompression(payload, candidateCompression, config)
+	payload, err = handleCompression(payload, candidateCompression, params.Config)
 	if err != nil {
 		return nil, err
 	}
-
-	return writeAndSign(payload, candidateHashes, signed, hints, sigType, intendedRecipients, config)
+	return writeAndSign(payload, candidateHashes, params.Signed, params.Hints, sigType, intendedRecipients, params.Config)
 }
 
 // Sign signs a message. The resulting WriteCloser must be closed after the
