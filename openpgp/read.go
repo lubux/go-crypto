@@ -155,7 +155,8 @@ ParsePackets:
 				return nil, errors.StructuralError("key material not followed by encrypted message")
 			}
 			packets.Unread(p)
-			return readSignedMessage(packets, nil, keyring, config)
+			md.IsEncrypted = false
+			return readSignedMessage(packets, md, keyring, config)
 		}
 	}
 
@@ -412,7 +413,7 @@ func (scr *signatureCheckReader) Read(buf []byte) (int, error) {
 					if signatureError == nil {
 						signatureError = checkSignatureDetails(key, sig, scr.config)
 					}
-					if scr.md.IsEncrypted && !scr.md.IsSymmetricallyEncrypted && len(sig.IntendedRecipients) > 0 && scr.md.CheckRecipients && signatureError == nil {
+					if !scr.md.IsSymmetricallyEncrypted && len(sig.IntendedRecipients) > 0 && scr.md.CheckRecipients && signatureError == nil {
 						// Check signature matches one of the recipients
 						signatureError = checkIntendedRecipientsMatch(&scr.md.DecryptedWith, sig)
 					}
