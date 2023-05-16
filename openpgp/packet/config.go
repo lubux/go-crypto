@@ -118,6 +118,10 @@ type Config struct {
 	// to be present in the signatures intended recipient list.
 	// if config is nil or flag is nil, it defaults to true
 	CheckIntendedRecipients *bool
+	// CacheSessionKey is a flag that indicates
+	// if a session key if any should be cached and returned in
+	// a pgp message decryption.
+	CacheSessionKey bool
 }
 
 func (c *Config) Random() io.Reader {
@@ -267,4 +271,11 @@ func (c *Config) IntendedRecipients() bool {
 		return true
 	}
 	return *c.CheckIntendedRecipients
+}
+
+func (c *Config) RetrieveSessionKey() bool {
+	if c == nil {
+		return false
+	}
+	return c.CacheSessionKey
 }
