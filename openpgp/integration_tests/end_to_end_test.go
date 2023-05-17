@@ -285,7 +285,7 @@ func signVerifyTest(
 
 	// Verify the signature against the corrupt message first
 	signatureReader := bytes.NewReader(buf.Bytes())
-	wrongsigner, err := openpgp.CheckArmoredDetachedSignature(
+	_, wrongsigner, err := openpgp.VerifyArmoredDetachedSignature(
 		pkFrom, corruptMessage, signatureReader, nil)
 	if err == nil || wrongsigner != nil {
 		t.Fatal("Expected the signature to not verify")
@@ -299,7 +299,7 @@ func signVerifyTest(
 		t.Error(errSeek)
 	}
 
-	otherSigner, err := openpgp.CheckArmoredDetachedSignature(
+	_, otherSigner, err := openpgp.VerifyArmoredDetachedSignature(
 		pkFrom, otherMessage, signatureReader, nil)
 	if binary {
 		if err == nil || otherSigner != nil {
@@ -329,7 +329,7 @@ func signVerifyTest(
 		t.Error(errSeek)
 	}
 
-	otherSigner, err = openpgp.CheckArmoredDetachedSignature(
+	_, otherSigner, err = openpgp.VerifyArmoredDetachedSignature(
 		pkFrom, message, signatureReader, nil)
 
 	if err != nil {

@@ -219,7 +219,7 @@ func TestSignatureExpiry(t *testing.T) {
 	// Check that the first signature has not expired day after tomorrow.
 	message = strings.NewReader(input)
 	signatureReader1 := strings.NewReader(signatureWriter1.String())
-	_, err = CheckArmoredDetachedSignature(keyring, message, signatureReader1, &packet.Config{
+	_, _, err = VerifyArmoredDetachedSignature(keyring, message, signatureReader1, &packet.Config{
 		Time: futureTime,
 	})
 	if err != nil {
@@ -230,7 +230,7 @@ func TestSignatureExpiry(t *testing.T) {
 	message = strings.NewReader(input)
 	signatureReader2 := strings.NewReader(signatureWriter2.String())
 	const expectedErr string = "openpgp: signature expired"
-	_, observedErr := CheckArmoredDetachedSignature(keyring, message, signatureReader2, &packet.Config{
+	_, _, observedErr := VerifyArmoredDetachedSignature(keyring, message, signatureReader2, &packet.Config{
 		Time: futureTime,
 	})
 	if observedErr.Error() != expectedErr {
@@ -240,7 +240,7 @@ func TestSignatureExpiry(t *testing.T) {
 	// Check that the third signature is also considered expired even now.
 	message = strings.NewReader(input)
 	signatureReader3 := strings.NewReader(signatureWriter3.String())
-	_, observedErr = CheckArmoredDetachedSignature(keyring, message, signatureReader3, nil)
+	_, _, observedErr = VerifyArmoredDetachedSignature(keyring, message, signatureReader3, nil)
 	if observedErr.Error() != expectedErr {
 		t.Errorf("Expected error '%s', but got error '%s'", expectedErr, observedErr)
 	}

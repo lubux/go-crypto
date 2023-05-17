@@ -343,7 +343,7 @@ func TestSymmetricallyEncrypted(t *testing.T) {
 func testDetachedSignature(t *testing.T, kring KeyRing, signature io.Reader, sigInput, tag string, expectedSignerKeyId uint64) {
 	signed := bytes.NewBufferString(sigInput)
 	config := &packet.Config{}
-	signer, err := CheckDetachedSignature(kring, signed, signature, config)
+	_, signer, err := VerifyDetachedSignature(kring, signed, signature, config)
 	if err != nil {
 		t.Errorf("%s: signature error: %s", tag, err)
 		return
@@ -364,7 +364,7 @@ func TestDetachedSignature(t *testing.T) {
 
 	incorrectSignedInput := signedInput + "X"
 	config := &packet.Config{}
-	_, err := CheckDetachedSignature(kring, bytes.NewBufferString(incorrectSignedInput), readerFromHex(detachedSignatureHex), config)
+	_, _, err := VerifyDetachedSignature(kring, bytes.NewBufferString(incorrectSignedInput), readerFromHex(detachedSignatureHex), config)
 	if err == nil {
 		t.Fatal("CheckDetachedSignature returned without error for bad signature")
 	}
@@ -391,7 +391,7 @@ func TestDetachedSignatureP256(t *testing.T) {
 func testHashFunctionError(t *testing.T, signatureHex string) {
 	kring, _ := ReadKeyRing(readerFromHex(testKeys1And2Hex))
 	config := &packet.Config{}
-	_, err := CheckDetachedSignature(kring, nil, readerFromHex(signatureHex), config)
+	_, _, err := VerifyDetachedSignature(kring, nil, readerFromHex(signatureHex), config)
 	if err == nil {
 		t.Fatal("Packet with bad hash type was correctly parsed")
 	}
@@ -417,7 +417,7 @@ func TestMissingHashFunction(t *testing.T) {
 func TestRSASignatureBadMPILength(t *testing.T) {
 	kring, _ := ReadKeyRing(readerFromHex(testKeys1And2Hex))
 	config := &packet.Config{}
-	_, err := CheckDetachedSignature(kring, nil, readerFromHex(rsaSignatureBadMPIlength), config)
+	_, _, err := VerifyDetachedSignature(kring, nil, readerFromHex(rsaSignatureBadMPIlength), config)
 	if err == nil {
 		t.Fatal("RSA Signature with malformed MPI was correctly parsed")
 	}
@@ -426,7 +426,7 @@ func TestRSASignatureBadMPILength(t *testing.T) {
 func TestDetachedSignatureExpiredCrossSig(t *testing.T) {
 	kring, _ := ReadArmoredKeyRing(bytes.NewBufferString(keyWithExpiredCrossSig))
 	config := &packet.Config{}
-	_, err := CheckArmoredDetachedSignature(kring, bytes.NewBufferString("Hello World :)"), bytes.NewBufferString(sigFromKeyWithExpiredCrossSig), config)
+	_, _, err := VerifyArmoredDetachedSignature(kring, bytes.NewBufferString("Hello World :)"), bytes.NewBufferString(sigFromKeyWithExpiredCrossSig), config)
 	if err == nil {
 		t.Fatal("Signature from key with expired subkey binding embedded signature was accepted")
 	}

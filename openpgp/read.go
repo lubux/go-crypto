@@ -12,6 +12,7 @@ import (
 	_ "crypto/sha512"
 	"hash"
 	"io"
+	"io/ioutil"
 	"strconv"
 
 	"github.com/ProtonMail/go-crypto/openpgp/armor"
@@ -320,7 +321,7 @@ FindLiteralData:
 	}
 
 	if md.IsSigned && md.SignatureError == nil {
-		md.UnverifiedBody = &signatureCheckReader{packets, h, wrappedHash, md, config}
+		md.UnverifiedBody = &signatureCheckReader{packets, h, wrappedHash, md, config, md.LiteralData.Body}
 	} else if md.decrypted != nil {
 		md.UnverifiedBody = checkReader{md}
 	} else {
@@ -401,10 +402,11 @@ type signatureCheckReader struct {
 	h, wrappedHash hash.Hash
 	md             *MessageDetails
 	config         *packet.Config
+	data           io.Reader
 }
 
 func (scr *signatureCheckReader) Read(buf []byte) (int, error) {
-	n, sensitiveParsingError := scr.md.LiteralData.Body.Read(buf)
+	n, sensitiveParsingError := scr.data.Read(buf)
 
 	// Hash only if required
 	if scr.md.SignedBy != nil {
@@ -420,7 +422,7 @@ func (scr *signatureCheckReader) Read(buf []byte) (int, error) {
 		for readError == nil {
 			var ok bool
 			if sig, ok = p.(*packet.Signature); ok {
-				if sig.Version == 5 && (sig.SigType == 0x00 || sig.SigType == 0x01) {
+				if sig.Version == 5 && scr.md.LiteralData != nil && (sig.SigType == 0x00 || sig.SigType == 0x01) {
 					sig.Metadata = scr.md.LiteralData
 				}
 
@@ -492,57 +494,77 @@ func VerifyDetachedSignatureAndSaltedHash(keyring KeyRing, signed, signature io.
 	return verifyDetachedSignature(keyring, signed, signature, expectedHashes, expectedSaltedHashes, true, config)
 }
 
-// CheckDetachedSignature takes a signed file and a detached signature and
-// returns the entity the signature was signed by, if any, and a possible
-// signature verification error. If the signer isn't known,
-// ErrUnknownIssuer is returned.
-func CheckDetachedSignature(keyring KeyRing, signed, signature io.Reader, config *packet.Config) (signer *Entity, err error) {
-	_, signer, err = verifyDetachedSignature(keyring, signed, signature, nil, nil, false, config)
-	return
+// VerifyDetachedSignatureReader takes a signed file and a detached signature and
+// returns message details struct similar to the ReadMessage function.
+// Once all data is read from md.UnverifiedBody the detached signature is verified.
+// If a verification error occurs it is stored in md.SignatureError
+// If the signer isn't known, ErrUnknownIssuer is returned.
+// If expectedHashes or expectedSaltedHashes is not nil, the method checks
+// if they match the signatures metadata or else return an error
+func VerifyDetachedSignatureReader(keyring KeyRing, signed, signature io.Reader, expectedHashes []crypto.Hash, expectedSaltedHashes []*packet.SaltedHashSpecifier, config *packet.Config) (md *MessageDetails, err error) {
+	checkHashes := expectedHashes != nil || expectedSaltedHashes != nil
+	return verifyDetachedSignatureReader(keyring, signed, signature, expectedHashes, expectedSaltedHashes, checkHashes, config)
 }
 
-// CheckDetachedSignatureAndSaltedHash performs the same actions as
-// CheckDetachedSignature and checks that the expected hash functions or salted hash functions were used.
-func CheckDetachedSignatureAndSaltedHash(keyring KeyRing, signed, signature io.Reader, expectedHashes []crypto.Hash, expectedSaltedHashes []*packet.SaltedHashSpecifier, config *packet.Config) (signer *Entity, err error) {
-	_, signer, err = verifyDetachedSignature(keyring, signed, signature, expectedHashes, expectedSaltedHashes, true, config)
-	return
-}
+// VerifyArmoredDetachedSignature performs the same actions as
+// VerifyDetachedSignature but expects the signature to be armored.
+func VerifyArmoredDetachedSignature(keyring KeyRing, signed, signature io.Reader, config *packet.Config) (sig *packet.Signature, signer *Entity, err error) {
+	body, err := readArmored(signature, SignatureType)
+	if err != nil {
+		return
+	}
 
-// CheckDetachedSignatureAndHash performs the same actions as
-// CheckDetachedSignature and checks that the expected hash functions were used.
-func CheckDetachedSignatureAndHash(keyring KeyRing, signed, signature io.Reader, expectedHashes []crypto.Hash, config *packet.Config) (signer *Entity, err error) {
-	_, signer, err = verifyDetachedSignature(keyring, signed, signature, expectedHashes, nil, true, config)
-	return
+	return VerifyDetachedSignature(keyring, signed, body, config)
 }
 
 func verifyDetachedSignature(keyring KeyRing, signed, signature io.Reader, expectedHashes []crypto.Hash, expectedSaltedHashes []*packet.SaltedHashSpecifier, checkHashes bool, config *packet.Config) (sig *packet.Signature, signer *Entity, err error) {
-	var issuerKeyId uint64
+	md, err := verifyDetachedSignatureReader(keyring, signed, signature, expectedHashes, expectedSaltedHashes, checkHashes, config)
+	if err != nil {
+		return nil, nil, err
+	}
+	_, err = io.Copy(ioutil.Discard, md.UnverifiedBody)
+	if err != nil {
+		return nil, nil, err
+	}
+	if md.SignatureError != nil {
+		return nil, nil, md.SignatureError
+	}
+	return md.Signature, md.SignedBy.Entity, nil
+}
+
+func verifyDetachedSignatureReader(keyring KeyRing, signed, signature io.Reader, expectedHashes []crypto.Hash, expectedSaltedHashes []*packet.SaltedHashSpecifier, checkHashes bool, config *packet.Config) (md *MessageDetails, err error) {
 	var hashFunc crypto.Hash
-	var sigType packet.SignatureType
 	var keys []Key
 	var p packet.Packet
+	var sig *packet.Signature
+	md = &MessageDetails{
+		IsEncrypted:     false,
+		CheckRecipients: false,
+		IsSigned:        true,
+	}
 
 	packets := packet.NewReader(signature)
 	for {
 		p, err = packets.Next()
 		if err == io.EOF {
-			return nil, nil, errors.ErrUnknownIssuer
+			return nil, errors.ErrUnknownIssuer
 		}
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 
 		var ok bool
 		sig, ok = p.(*packet.Signature)
 		if !ok {
-			return nil, nil, errors.StructuralError("non signature packet found")
+			return nil, errors.StructuralError("non signature packet found")
 		}
 		if sig.IssuerKeyId == nil {
-			return nil, nil, errors.StructuralError("signature doesn't have an issuer")
+			return nil, errors.StructuralError("signature doesn't have an issuer")
 		}
-		issuerKeyId = *sig.IssuerKeyId
+		md.SignedByKeyId = *sig.IssuerKeyId
+		md.SignedByFingerprint = sig.IssuerFingerprint
 		hashFunc = sig.Hash
-		sigType = sig.SigType
+		md.SignedWithType = sig.SigType
 		if checkHashes {
 			matchFound := false
 			if sig.Version == 6 {
@@ -564,10 +586,10 @@ func verifyDetachedSignature(keyring KeyRing, signed, signature io.Reader, expec
 				}
 			}
 			if !matchFound {
-				return nil, nil, errors.StructuralError("hash algorithm or salt mismatch with cleartext message headers")
+				return nil, errors.StructuralError("hash algorithm or salt mismatch with cleartext message headers")
 			}
 		}
-		keys = keyring.KeysByIdUsage(issuerKeyId, packet.KeyFlagSign)
+		keys = keyring.KeysByIdUsage(md.SignedByKeyId, packet.KeyFlagSign)
 		if len(keys) > 0 {
 			break
 		}
@@ -576,39 +598,20 @@ func verifyDetachedSignature(keyring KeyRing, signed, signature io.Reader, expec
 	if len(keys) == 0 {
 		panic("unreachable")
 	}
-
+	md.SignedBy = &keys[0]
 	h, err := sig.PrepareVerify()
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	wrappedHash, err := wrapHashForSignature(h, sigType)
+	wrappedHash, err := wrapHashForSignature(h, sig.SigType)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-
-	if _, err := io.Copy(wrappedHash, signed); err != nil && err != io.EOF {
-		return nil, nil, err
-	}
-
-	for _, key := range keys {
-		err = key.PublicKey.VerifySignature(h, sig)
-		if err == nil {
-			return sig, key.Entity, checkSignatureDetails(&key, sig, config)
-		}
-	}
-
-	return nil, nil, err
-}
-
-// CheckArmoredDetachedSignature performs the same actions as
-// CheckDetachedSignature but expects the signature to be armored.
-func CheckArmoredDetachedSignature(keyring KeyRing, signed, signature io.Reader, config *packet.Config) (signer *Entity, err error) {
-	body, err := readArmored(signature, SignatureType)
-	if err != nil {
-		return
-	}
-
-	return CheckDetachedSignature(keyring, signed, body, config)
+	// make sure that only the selected signature is checked
+	var signaturePacket bytes.Buffer
+	sig.Serialize(&signaturePacket)
+	md.UnverifiedBody = &signatureCheckReader{packet.NewReader(&signaturePacket), h, wrappedHash, md, config, signed}
+	return md, nil
 }
 
 // checkSignatureDetails returns an error if:

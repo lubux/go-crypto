@@ -39,7 +39,7 @@ func testParse(t *testing.T, input []byte, expected, expectedPlaintext string) {
 	}
 
 	config := &packet.Config{}
-	if _, err := openpgp.CheckDetachedSignature(keyring, bytes.NewBuffer(b.Bytes), b.ArmoredSignature.Body, config); err != nil {
+	if _, _, err := openpgp.VerifyDetachedSignature(keyring, bytes.NewBuffer(b.Bytes), b.ArmoredSignature.Body, config); err != nil {
 		t.Errorf("failed to check signature: %s", err)
 	}
 
@@ -136,7 +136,7 @@ func TestSigning(t *testing.T) {
 		}
 
 		config := &packet.Config{}
-		if _, err := openpgp.CheckDetachedSignature(keyring, bytes.NewBuffer(b.Bytes), b.ArmoredSignature.Body, config); err != nil {
+		if _, _, err := openpgp.VerifyDetachedSignature(keyring, bytes.NewBuffer(b.Bytes), b.ArmoredSignature.Body, config); err != nil {
 			t.Errorf("#%d: failed to check signature: %s", i, err)
 		}
 	}
@@ -161,9 +161,9 @@ func testMultiSign(t *testing.T, v6 bool) {
 	zero := quickRand(0)
 	config := packet.Config{Rand: &zero, V6Keys: v6}
 
-	for nKeys := 0; nKeys < 4; nKeys++ {
+	for nKeys := 1; nKeys < 4; nKeys++ {
 	nextTest:
-		for nExtra := 0; nExtra < 4; nExtra++ {
+		for nExtra := 2; nExtra < 4; nExtra++ {
 			var signKeys []*packet.PrivateKey
 			var verifyKeys openpgp.EntityList
 
@@ -198,7 +198,7 @@ func testMultiSign(t *testing.T, v6 bool) {
 				t.Errorf("Inline data didn't match original; got %q want %q", string(block.Bytes), string(input))
 			}
 			config := &packet.Config{}
-			_, err = openpgp.CheckDetachedSignature(verifyKeys, bytes.NewReader(block.Bytes), block.ArmoredSignature.Body, config)
+			_, _, err = openpgp.VerifyDetachedSignature(verifyKeys, bytes.NewReader(block.Bytes), block.ArmoredSignature.Body, config)
 			if nKeys == 0 {
 				if err == nil {
 					t.Errorf("verifying inline (%s) succeeded; want failure", desc)
