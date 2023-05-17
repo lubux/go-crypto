@@ -645,11 +645,24 @@ func encryptDataAndSign(
 	return writeAndSign(payload, candidateHashes, params.Signed, params.Hints, sigType, intendedRecipients, params.Config)
 }
 
-// Sign signs a message. The resulting WriteCloser must be closed after the
-// contents of the file have been written.  hints contains optional information
-// that aids the recipients in processing the message.
-// If config is nil, sensible defaults will be used.
-func Sign(output io.Writer, signed *Entity, hints *FileHints, config *packet.Config) (input io.WriteCloser, err error) {
+type SignParams struct {
+	// Hints contains file metadata for the literal data packet.
+	// If nil, default is used.
+	Hints *FileHints
+	// TextSig indicates if signatures of type SigTypeText should be produced
+	TextSig bool
+	// Config provides the config to be used.
+	// If Config is nil, sensible defaults will be used.
+	Config *packet.Config
+}
+
+// SignWithParams signs a message. The resulting WriteCloser must be closed after the
+// contents of the file have been written.
+// SignParams can contain optional params and can be nil for defaults.
+func SignWithParams(output io.Writer, signed *Entity, params *SignParams) (input io.WriteCloser, err error) {
+	if params == nil {
+		params = &SignParams{}
+	}
 	if signed == nil {
 		return nil, errors.InvalidArgumentError("no signer provided")
 	}
@@ -675,8 +688,22 @@ func Sign(output io.Writer, signed *Entity, hints *FileHints, config *packet.Con
 	if len(candidateHashes) == 0 {
 		return nil, errors.InvalidArgumentError("cannot sign because signing key shares no common algorithms with candidate hashes")
 	}
+	sigType := packet.SigTypeBinary
+	if params.TextSig {
+		sigType = packet.SigTypeText
+	}
+	return writeAndSign(noOpCloser{output}, candidateHashes, signed, params.Hints, sigType, nil, params.Config)
+}
 
-	return writeAndSign(noOpCloser{output}, candidateHashes, signed, hints, packet.SigTypeBinary, nil, config)
+// Sign signs a message. The resulting WriteCloser must be closed after the
+// contents of the file have been written.  hints contains optional information
+// that aids the recipients in processing the message.
+// If config is nil, sensible defaults will be used.
+func Sign(output io.Writer, signed *Entity, hints *FileHints, config *packet.Config) (input io.WriteCloser, err error) {
+	return SignWithParams(output, signed, &SignParams{
+		Config: config,
+		Hints:  hints,
+	})
 }
 
 // signatureWriter hashes the contents of a message while passing it along to
