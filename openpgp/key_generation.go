@@ -13,17 +13,17 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/ProtonMail/go-crypto/openpgp/ecdh"
-	"github.com/ProtonMail/go-crypto/openpgp/ecdsa"
-	"github.com/ProtonMail/go-crypto/openpgp/ed25519"
-	"github.com/ProtonMail/go-crypto/openpgp/ed448"
-	"github.com/ProtonMail/go-crypto/openpgp/eddsa"
-	"github.com/ProtonMail/go-crypto/openpgp/errors"
-	"github.com/ProtonMail/go-crypto/openpgp/internal/algorithm"
-	"github.com/ProtonMail/go-crypto/openpgp/internal/ecc"
-	"github.com/ProtonMail/go-crypto/openpgp/packet"
-	"github.com/ProtonMail/go-crypto/openpgp/x25519"
-	"github.com/ProtonMail/go-crypto/openpgp/x448"
+	"github.com/ProtonMail/go-crypto/v2/openpgp/ecdh"
+	"github.com/ProtonMail/go-crypto/v2/openpgp/ecdsa"
+	"github.com/ProtonMail/go-crypto/v2/openpgp/ed25519"
+	"github.com/ProtonMail/go-crypto/v2/openpgp/ed448"
+	"github.com/ProtonMail/go-crypto/v2/openpgp/eddsa"
+	"github.com/ProtonMail/go-crypto/v2/openpgp/errors"
+	"github.com/ProtonMail/go-crypto/v2/openpgp/internal/algorithm"
+	"github.com/ProtonMail/go-crypto/v2/openpgp/internal/ecc"
+	"github.com/ProtonMail/go-crypto/v2/openpgp/packet"
+	"github.com/ProtonMail/go-crypto/v2/openpgp/x25519"
+	"github.com/ProtonMail/go-crypto/v2/openpgp/x448"
 )
 
 // NewEntity returns an Entity that contains a fresh RSA/RSA keypair with a

@@ -13,7 +13,7 @@ import (
 	mathrand "math/rand"
 	"testing"
 
-	"github.com/ProtonMail/go-crypto/openpgp/s2k"
+	"github.com/ProtonMail/go-crypto/v2/openpgp/s2k"
 )
 
 const maxPassLen = 64

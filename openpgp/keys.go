@@ -9,9 +9,9 @@ import (
 	"io"
 	"time"
 
-	"github.com/ProtonMail/go-crypto/openpgp/armor"
-	"github.com/ProtonMail/go-crypto/openpgp/errors"
-	"github.com/ProtonMail/go-crypto/openpgp/packet"
+	"github.com/ProtonMail/go-crypto/v2/openpgp/armor"
+	"github.com/ProtonMail/go-crypto/v2/openpgp/errors"
+	"github.com/ProtonMail/go-crypto/v2/openpgp/packet"
 )
 
 // PublicKeyType is the armor type for a PGP public key.

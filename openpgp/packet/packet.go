@@ -4,7 +4,7 @@
 
 // Package packet implements parsing and serialization of OpenPGP packets, as
 // specified in RFC 4880.
-package packet // import "github.com/ProtonMail/go-crypto/openpgp/packet"
+package packet // import "github.com/ProtonMail/go-crypto/v2/openpgp/packet"
 
 import (
 	"bytes"
@@ -12,8 +12,8 @@ import (
 	"crypto/rsa"
 	"io"
 
-	"github.com/ProtonMail/go-crypto/openpgp/errors"
-	"github.com/ProtonMail/go-crypto/openpgp/internal/algorithm"
+	"github.com/ProtonMail/go-crypto/v2/openpgp/errors"
+	"github.com/ProtonMail/go-crypto/v2/openpgp/internal/algorithm"
 )
 
 // readFull is the same as io.ReadFull except that reading zero bytes returns

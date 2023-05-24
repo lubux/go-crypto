@@ -5,8 +5,8 @@ import (
 	"crypto/subtle"
 	"io"
 
-	"github.com/ProtonMail/go-crypto/openpgp/aes/keywrap"
-	"github.com/ProtonMail/go-crypto/openpgp/errors"
+	"github.com/ProtonMail/go-crypto/v2/openpgp/aes/keywrap"
+	"github.com/ProtonMail/go-crypto/v2/openpgp/errors"
 	x25519lib "github.com/cloudflare/circl/dh/x25519"
 	"golang.org/x/crypto/hkdf"
 )

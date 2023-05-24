@@ -4,9 +4,10 @@ package ecc
 import (
 	"bytes"
 	"crypto/elliptic"
-	"github.com/ProtonMail/go-crypto/bitcurves"
-	"github.com/ProtonMail/go-crypto/brainpool"
-	"github.com/ProtonMail/go-crypto/openpgp/internal/encoding"
+
+	"github.com/ProtonMail/go-crypto/v2/bitcurves"
+	"github.com/ProtonMail/go-crypto/v2/brainpool"
+	"github.com/ProtonMail/go-crypto/v2/openpgp/internal/encoding"
 )
 
 type CurveInfo struct {

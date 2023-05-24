@@ -11,10 +11,10 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/ProtonMail/go-crypto/openpgp/armor"
-	"github.com/ProtonMail/go-crypto/openpgp/errors"
-	"github.com/ProtonMail/go-crypto/openpgp/internal/algorithm"
-	"github.com/ProtonMail/go-crypto/openpgp/packet"
+	"github.com/ProtonMail/go-crypto/v2/openpgp/armor"
+	"github.com/ProtonMail/go-crypto/v2/openpgp/errors"
+	"github.com/ProtonMail/go-crypto/v2/openpgp/internal/algorithm"
+	"github.com/ProtonMail/go-crypto/v2/openpgp/packet"
 )
 
 // DetachSign signs message with the private key from signer (which must

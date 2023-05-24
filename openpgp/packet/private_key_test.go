@@ -20,11 +20,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ProtonMail/go-crypto/openpgp/ecdsa"
-	"github.com/ProtonMail/go-crypto/openpgp/eddsa"
-	"github.com/ProtonMail/go-crypto/openpgp/elgamal"
-	"github.com/ProtonMail/go-crypto/openpgp/internal/ecc"
-	"github.com/ProtonMail/go-crypto/openpgp/s2k"
+	"github.com/ProtonMail/go-crypto/v2/openpgp/ecdsa"
+	"github.com/ProtonMail/go-crypto/v2/openpgp/eddsa"
+	"github.com/ProtonMail/go-crypto/v2/openpgp/elgamal"
+	"github.com/ProtonMail/go-crypto/v2/openpgp/internal/ecc"
+	"github.com/ProtonMail/go-crypto/v2/openpgp/s2k"
 )
 
 const maxMessageLength = 1 << 10

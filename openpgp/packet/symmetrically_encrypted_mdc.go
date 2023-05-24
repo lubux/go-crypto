@@ -12,7 +12,7 @@ import (
 	"io"
 	"strconv"
 
-	"github.com/ProtonMail/go-crypto/openpgp/errors"
+	"github.com/ProtonMail/go-crypto/v2/openpgp/errors"
 )
 
 // seMdcReader wraps an io.Reader with a no-op Close method.

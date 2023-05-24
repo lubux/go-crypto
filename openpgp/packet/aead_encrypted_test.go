@@ -10,7 +10,7 @@ import (
 	mathrand "math/rand"
 	"testing"
 
-	"github.com/ProtonMail/go-crypto/openpgp/errors"
+	"github.com/ProtonMail/go-crypto/v2/openpgp/errors"
 )
 
 // Note: This implementation does not produce packets with chunk sizes over

@@ -5,7 +5,7 @@ import (
 	"crypto/subtle"
 	"io"
 
-	"github.com/ProtonMail/go-crypto/openpgp/errors"
+	"github.com/ProtonMail/go-crypto/v2/openpgp/errors"
 	ed448lib "github.com/cloudflare/circl/sign/ed448"
 )
 

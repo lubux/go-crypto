@@ -9,7 +9,7 @@ import (
 	"io"
 	"testing"
 
-	"github.com/ProtonMail/go-crypto/openpgp/errors"
+	"github.com/ProtonMail/go-crypto/v2/openpgp/errors"
 )
 
 var oidTests = []struct {

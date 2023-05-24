@@ -9,7 +9,7 @@ import (
 	"crypto/sha256"
 	"io"
 
-	"github.com/ProtonMail/go-crypto/openpgp/errors"
+	"github.com/ProtonMail/go-crypto/v2/openpgp/errors"
 	"golang.org/x/crypto/hkdf"
 )
 

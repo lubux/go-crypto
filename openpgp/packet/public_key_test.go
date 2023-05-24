@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ProtonMail/go-crypto/openpgp/ecdsa"
-	"github.com/ProtonMail/go-crypto/openpgp/internal/ecc"
+	"github.com/ProtonMail/go-crypto/v2/openpgp/ecdsa"
+	"github.com/ProtonMail/go-crypto/v2/openpgp/internal/ecc"
 )
 
 var pubKeyTests = []struct {

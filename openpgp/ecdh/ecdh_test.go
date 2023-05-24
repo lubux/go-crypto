@@ -9,11 +9,12 @@ package ecdh
 import (
 	"bytes"
 	"crypto/rand"
-	"github.com/ProtonMail/go-crypto/openpgp/internal/ecc"
 	"io"
 	"testing"
 
-	"github.com/ProtonMail/go-crypto/openpgp/internal/algorithm"
+	"github.com/ProtonMail/go-crypto/v2/openpgp/internal/ecc"
+
+	"github.com/ProtonMail/go-crypto/v2/openpgp/internal/algorithm"
 )
 
 func TestCurves(t *testing.T) {
