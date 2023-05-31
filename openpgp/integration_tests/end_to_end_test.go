@@ -163,7 +163,7 @@ func encDecTest(t *testing.T, from testVector, testVectors []testVector) {
 				t.Error(errDec)
 			}
 			buf := new(bytes.Buffer)
-			w, err := openpgp.Encrypt(buf, pkTo[:1], nil, signer, hints, from.config)
+			w, err := openpgp.Encrypt(buf, pkTo[:1], nil, []*openpgp.Entity{signer}, hints, from.config)
 			if err != nil {
 				t.Fatalf("Error in Encrypt: %s", err)
 			}
@@ -278,9 +278,9 @@ func signVerifyTest(
 	buf := new(bytes.Buffer)
 	var errSign error
 	if binary {
-		errSign = openpgp.ArmoredDetachSign(buf, skFrom[0], message, nil)
+		errSign = openpgp.ArmoredDetachSign(buf, skFrom[:1], message, nil)
 	} else {
-		errSign = openpgp.ArmoredDetachSignText(buf, skFrom[0], message, nil)
+		errSign = openpgp.ArmoredDetachSignText(buf, skFrom[:1], message, nil)
 	}
 	if errSign != nil {
 		t.Error(errSign)

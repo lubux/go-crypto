@@ -27,7 +27,7 @@ func TestSignDetached(t *testing.T) {
 	kring, _ := ReadKeyRing(readerFromHex(testKeys1And2PrivateHex))
 	out := bytes.NewBuffer(nil)
 	message := bytes.NewBufferString(signedInput)
-	err := DetachSign(out, kring[0], message, nil)
+	err := DetachSign(out, kring[:1], message, nil)
 	if err != nil {
 		t.Error(err)
 	}
@@ -39,7 +39,7 @@ func TestSignTextDetached(t *testing.T) {
 	kring, _ := ReadKeyRing(readerFromHex(testKeys1And2PrivateHex))
 	out := bytes.NewBuffer(nil)
 	message := bytes.NewBufferString(signedInput)
-	err := DetachSignText(out, kring[0], message, nil)
+	err := DetachSignText(out, kring[:1], message, nil)
 	if err != nil {
 		t.Error(err)
 	}
@@ -51,7 +51,7 @@ func TestSignDetachedDSA(t *testing.T) {
 	kring, _ := ReadKeyRing(readerFromHex(dsaTestKeyPrivateHex))
 	out := bytes.NewBuffer(nil)
 	message := bytes.NewBufferString(signedInput)
-	err := DetachSign(out, kring[0], message, nil)
+	err := DetachSign(out, kring[:1], message, nil)
 	if err != nil {
 		t.Error(err)
 	}
@@ -65,7 +65,7 @@ func TestSignDetachedP256(t *testing.T) {
 
 	out := bytes.NewBuffer(nil)
 	message := bytes.NewBufferString(signedInput)
-	err := DetachSign(out, kring[0], message, nil)
+	err := DetachSign(out, kring[:1], message, nil)
 	if err != nil {
 		t.Error(err)
 	}
@@ -86,7 +86,7 @@ func TestSignDetachedWithNotation(t *testing.T) {
 			},
 		},
 	}
-	err := DetachSign(signature, kring[0], message, config)
+	err := DetachSign(signature, kring[:1], message, config)
 	if err != nil {
 		t.Error(err)
 	}
@@ -137,7 +137,7 @@ func TestSignDetachedWithCriticalNotation(t *testing.T) {
 			},
 		},
 	}
-	err := DetachSign(signature, kring[0], message, config)
+	err := DetachSign(signature, kring[:1], message, config)
 	if err != nil {
 		t.Error(err)
 	}
@@ -477,7 +477,7 @@ func TestIntendedRecipientsEncryption(t *testing.T) {
 	}
 
 	outputBuffer := new(bytes.Buffer)
-	pWriter, err := Encrypt(outputBuffer, []*Entity{publicRecipient}, []*Entity{hiddenRecipient}, sender, nil, config)
+	pWriter, err := Encrypt(outputBuffer, []*Entity{publicRecipient}, []*Entity{hiddenRecipient}, []*Entity{sender}, nil, config)
 	if err != nil {
 		t.Errorf("error in encrypt: %s", err)
 	}
@@ -558,6 +558,99 @@ func TestIntendedRecipientsEncryption(t *testing.T) {
 	}
 }
 
+func TestMultiSignEncryption(t *testing.T) {
+	recipient, err := NewEntity("sender", "", "send@example.com", nil)
+	if err != nil {
+		t.Errorf("failed to create entity: %s", err)
+		return
+	}
+
+	v4Sign, err := NewEntity("signv4", "", "signv4@example.com", &packet.Config{
+		Algorithm: packet.PubKeyAlgoRSA,
+	})
+	if err != nil {
+		t.Errorf("failed to create entity: %s", err)
+		return
+	}
+
+	v6Sign, err := NewEntity("signv6", "", "signv6@example.com", &packet.Config{
+		V6Keys:    true,
+		Algorithm: packet.PubKeyAlgoEd25519,
+	})
+	if err != nil {
+		t.Errorf("failed to create entity: %s", err)
+		return
+	}
+
+	outputBuffer := new(bytes.Buffer)
+	pWriter, err := Encrypt(outputBuffer, []*Entity{recipient}, nil, []*Entity{v4Sign, v6Sign}, nil, nil)
+	if err != nil {
+		t.Errorf("error in encrypt: %s", err)
+	}
+
+	const message = "testing"
+	_, err = pWriter.Write([]byte(message))
+	if err != nil {
+		t.Errorf("error writing plaintext: %s", err)
+	}
+
+	err = pWriter.Close()
+	if err != nil {
+		t.Errorf("error closing WriteCloser: %s", err)
+	}
+
+	encryptedMessage := make([]byte, len(outputBuffer.Bytes()))
+	copy(encryptedMessage, outputBuffer.Bytes())
+
+	md, err := ReadMessage(outputBuffer, EntityList{recipient, v4Sign}, nil /* no prompt */, nil)
+	if err != nil {
+		t.Errorf("error reading message: %s", err)
+	}
+
+	// Check reading with v4 key
+	_, err = ioutil.ReadAll(md.UnverifiedBody)
+	if err != nil {
+		t.Errorf("error reading encrypted contents: %s", err)
+	}
+
+	if md.Signature == nil || md.SignatureError != nil {
+		t.Error("expected matching signature")
+	}
+
+	// Check reading with v6 key
+	outputBuffer = new(bytes.Buffer)
+	outputBuffer.Write(encryptedMessage)
+	md, err = ReadMessage(outputBuffer, EntityList{recipient, v6Sign}, nil /* no prompt */, nil)
+	if err != nil {
+		t.Errorf("error reading message: %s", err)
+	}
+	_, err = ioutil.ReadAll(md.UnverifiedBody)
+	if err != nil {
+		t.Errorf("error reading encrypted contents: %s", err)
+	}
+	if md.Signature == nil || md.SignatureError != nil {
+		t.Error("expected matching signature")
+	}
+
+	// Check reading with error
+	outputBuffer = new(bytes.Buffer)
+	outputBuffer.Write(encryptedMessage)
+	md, err = ReadMessage(outputBuffer, EntityList{recipient}, nil /* no prompt */, nil)
+	if err != nil {
+		t.Errorf("error reading message: %s", err)
+	}
+	_, err = ioutil.ReadAll(md.UnverifiedBody)
+	if err != nil {
+		t.Errorf("error reading encrypted contents: %s", err)
+	}
+	if md.Signature != nil || md.SignatureError == nil {
+		t.Error("expected error")
+	}
+	if md.SignatureError != errors.ErrUnknownIssuer {
+		t.Error("expected unknown issuer error")
+	}
+}
+
 func TestEncryption(t *testing.T) {
 	for i, test := range testEncryptionTests {
 		kring, _ := ReadKeyRing(readerFromHex(test.keyRingHex))
@@ -607,8 +700,11 @@ func TestEncryption(t *testing.T) {
 			}
 			config.AEADConfig = &aeadConf
 		}
-
-		w, err := Encrypt(buf, kring[:1], nil, signed, nil /* no hints */, config)
+		var signers []*Entity
+		if signed != nil {
+			signers = []*Entity{signed}
+		}
+		w, err := Encrypt(buf, kring[:1], nil, signers, nil /* no hints */, config)
 		if err != nil && config.AEAD() != nil && !test.okV6 {
 			// ElGamal is not allowed with v6
 			continue
@@ -718,7 +814,7 @@ func TestSigning(t *testing.T) {
 		signed := kring[0]
 
 		buf := new(bytes.Buffer)
-		w, err := Sign(buf, signed, nil /* no hints */, nil)
+		w, err := Sign(buf, []*Entity{signed}, nil /* no hints */, nil)
 		if err != nil {
 			t.Errorf("#%d: error in Sign: %s", i, err)
 			continue

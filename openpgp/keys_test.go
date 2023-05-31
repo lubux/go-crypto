@@ -186,7 +186,7 @@ func TestSignatureExpiry(t *testing.T) {
 	var signatureWriter1 bytes.Buffer
 	const input string = "Hello, world!"
 	message := strings.NewReader(input)
-	err = ArmoredDetachSign(&signatureWriter1, entity, message, nil)
+	err = ArmoredDetachSign(&signatureWriter1, []*Entity{entity}, message, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +194,7 @@ func TestSignatureExpiry(t *testing.T) {
 	// Make a signature that expires in a day.
 	var signatureWriter2 bytes.Buffer
 	message = strings.NewReader(input)
-	err = ArmoredDetachSign(&signatureWriter2, entity, message, &packet.Config{
+	err = ArmoredDetachSign(&signatureWriter2, []*Entity{entity}, message, &packet.Config{
 		SigLifetimeSecs: 24 * 60 * 60,
 	})
 	if err != nil {
@@ -209,7 +209,7 @@ func TestSignatureExpiry(t *testing.T) {
 	// Make a signature that was created in the future.
 	var signatureWriter3 bytes.Buffer
 	message = strings.NewReader(input)
-	err = ArmoredDetachSign(&signatureWriter3, entity, message, &packet.Config{
+	err = ArmoredDetachSign(&signatureWriter3, []*Entity{entity}, message, &packet.Config{
 		Time: futureTime,
 	})
 	if err != nil {
