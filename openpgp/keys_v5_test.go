@@ -36,7 +36,10 @@ func testV5ForeignSignedMessage(t *testing.T) {
 		return
 	}
 	md, err := ReadMessage(block.Body, kring, nil, nil)
-	if md.SignedBy == nil {
+	if len(md.SignatureCandidates) < 1 {
+		t.Fatal("no signature found")
+	}
+	if md.SignatureCandidates[0].SignedBy == nil {
 		t.Fatal("incorrect signer")
 	}
 	if err != nil {

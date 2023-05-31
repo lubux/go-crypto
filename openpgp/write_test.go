@@ -509,6 +509,11 @@ func TestIntendedRecipientsEncryption(t *testing.T) {
 	if err != nil {
 		t.Errorf("error reading encrypted contents: %s", err)
 	}
+
+	if md.Signature == nil {
+		t.Error("expected matching signature")
+	}
+
 	if len(md.Signature.IntendedRecipients) == 0 ||
 		!bytes.Equal(md.Signature.IntendedRecipients[0].Fingerprint, publicRecipient.PrimaryKey.Fingerprint) {
 		t.Errorf("signature should contain %s as recipient", publicRecipient.PrimaryKey.Fingerprint)
@@ -636,10 +641,13 @@ func TestEncryption(t *testing.T) {
 		if test.isSigned {
 			signKey, _ := kring[0].SigningKey(testTime)
 			expectedKeyId := signKey.PublicKey.KeyId
-			if md.SignedByKeyId != expectedKeyId {
-				t.Errorf("#%d: message signed by wrong key id, got: %v, want: %v", i, *md.SignedBy, expectedKeyId)
+			if len(md.SignatureCandidates) < 1 {
+				t.Error("no candidate signature found")
 			}
-			if md.SignedBy == nil {
+			if md.SignatureCandidates[0].IssuerKeyId != expectedKeyId {
+				t.Errorf("#%d: message signed by wrong key id, got: %v, want: %v", i, *md.SignatureCandidates[0].SignedBy, expectedKeyId)
+			}
+			if md.SignatureCandidates[0].SignedBy == nil {
 				t.Errorf("#%d: failed to find the signing Entity", i)
 			}
 		}
@@ -737,10 +745,13 @@ func TestSigning(t *testing.T) {
 		testTime, _ := time.Parse("2006-01-02", "2022-12-01")
 		signKey, _ := kring[0].SigningKey(testTime)
 		expectedKeyId := signKey.PublicKey.KeyId
-		if md.SignedByKeyId != expectedKeyId {
-			t.Errorf("#%d: message signed by wrong key id, got: %v, want: %v", i, *md.SignedBy, expectedKeyId)
+		if len(md.SignatureCandidates) < 1 {
+			t.Error("expected a signature candidate")
 		}
-		if md.SignedBy == nil {
+		if md.SignatureCandidates[0].IssuerKeyId != expectedKeyId {
+			t.Errorf("#%d: message signed by wrong key id, got: %v, want: %v", i, *md.SignatureCandidates[0].SignedBy, expectedKeyId)
+		}
+		if md.SignatureCandidates[0].SignedBy == nil {
 			t.Errorf("#%d: failed to find the signing Entity", i)
 		}
 

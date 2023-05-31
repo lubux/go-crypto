@@ -127,7 +127,11 @@ func checkSignedMessage(t *testing.T, signedHex, expected string) {
 		return
 	}
 
-	if !md.IsSigned || md.SignedByKeyId != 0xa34d7e18c20c31bb || md.SignedBy == nil || md.IsEncrypted || md.IsSymmetricallyEncrypted || len(md.EncryptedToKeyIds) != 0 || md.DecryptedWith.Entity != nil {
+	if len(md.SignatureCandidates) < 1 {
+		t.Errorf("bad MessageDetails: %#v", md)
+	}
+
+	if !md.IsSigned || md.SignatureCandidates[0].IssuerKeyId != 0xa34d7e18c20c31bb || md.SignatureCandidates[0].SignedBy == nil || md.IsEncrypted || md.IsSymmetricallyEncrypted || len(md.EncryptedToKeyIds) != 0 || md.DecryptedWith.Entity != nil {
 		t.Errorf("bad MessageDetails: %#v", md)
 	}
 
@@ -225,7 +229,11 @@ func TestSignedEncryptedMessage(t *testing.T) {
 			return
 		}
 
-		if !md.IsSigned || md.SignedByKeyId != test.signedByKeyId || md.SignedBy == nil || !md.IsEncrypted || md.IsSymmetricallyEncrypted || len(md.EncryptedToKeyIds) == 0 || md.EncryptedToKeyIds[0] != test.encryptedToKeyId {
+		if len(md.SignatureCandidates) < 1 {
+			t.Errorf("#%d: bad MessageDetails: %#v", i, md)
+		}
+
+		if !md.IsSigned || md.SignatureCandidates[0].IssuerKeyId != test.signedByKeyId || md.SignatureCandidates[0].SignedBy == nil || !md.IsEncrypted || md.IsSymmetricallyEncrypted || len(md.EncryptedToKeyIds) == 0 || md.EncryptedToKeyIds[0] != test.encryptedToKeyId {
 			t.Errorf("#%d: bad MessageDetails: %#v", i, md)
 		}
 
@@ -255,25 +263,6 @@ func TestSignedEncryptedMessage(t *testing.T) {
 
 			if hex.EncodeToString(sigData) != test.verifiedSigHex {
 				t.Errorf("#%d: verified signature does not match: %s, %s", i, hex.EncodeToString(sigData), test.verifiedSigHex)
-			}
-		}
-
-		if test.unverifiedSigHex != "" {
-			var sig bytes.Buffer
-			for i := range md.UnverifiedSignatures {
-				err = md.Signature.Serialize(&sig)
-				if err != nil {
-					t.Errorf("#%d: error serializing unverified signature: %s", i, err)
-				}
-			}
-
-			sigData, err := ioutil.ReadAll(&sig)
-			if err != nil {
-				t.Errorf("#%d: error reading unverified signature: %s", i, err)
-			}
-
-			if hex.EncodeToString(sigData) != test.verifiedSigHex {
-				t.Errorf("#%d: unverified signature does not match: %s, %s", i, hex.EncodeToString(sigData), test.verifiedSigHex)
 			}
 		}
 	}
@@ -922,4 +911,42 @@ func TestMessageWithoutMdc(t *testing.T) {
 			t.Error("unexpected message content")
 		}
 	})
+}
+
+func TestMultiSignedMessage(t *testing.T) {
+	messageBlock, err := armor.Decode(strings.NewReader(multiSignMessage))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	keyring, err := ReadArmoredKeyRing(strings.NewReader(multiSignMessageKey))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	md, err := ReadMessage(messageBlock.Body, keyring, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(md.SignatureCandidates) != 2 {
+		t.Errorf("expected 2 signature candidates, got: %d", len(md.SignatureCandidates))
+	}
+
+	_, err = io.ReadAll(md.UnverifiedBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if md.Signature == nil {
+		t.Error("expected a matched verified signatures, got: nil")
+	}
+
+	if md.SignatureError != nil {
+		t.Error("expected no signature error, got: ", md.SignatureError)
+	}
+
+	if md.SignatureCandidates[0].SignatureError == nil {
+		t.Error("First candidate should fail in verification, got: nil")
+	}
 }

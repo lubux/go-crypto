@@ -135,7 +135,7 @@ func decryptionTest(t *testing.T, vector testVector, sk openpgp.EntityList) {
 	}
 
 	if md.Signature == nil {
-		t.Fatal("Expected a signature to be set")
+		t.Fatal("Expected a signature to be valid")
 	}
 }
 
@@ -204,17 +204,20 @@ func encDecTest(t *testing.T, from testVector, testVectors []testVector) {
 			signKey, _ := signer.SigningKey(time.Now())
 			expectedKeyID := signKey.PublicKey.KeyId
 			expectedFingerprint := signKey.PublicKey.Fingerprint
-			if signKey.PublicKey.Version != 6 && md.SignedByKeyId != expectedKeyID {
+			if len(md.SignatureCandidates) != 1 {
+				t.Fatal("No signature candidate found")
+			}
+			if signKey.PublicKey.Version != 6 && md.SignatureCandidates[0].IssuerKeyId != expectedKeyID {
 				t.Fatalf(
 					"Message signed by wrong key id, got: %v, want: %v",
-					*md.SignedBy, expectedKeyID)
+					*md.SignatureCandidates[0].SignedBy, expectedKeyID)
 			}
-			if signKey.PublicKey.Version == 6 && bytes.Compare(md.SignedByFingerprint, expectedFingerprint) != 0 {
+			if signKey.PublicKey.Version == 6 && bytes.Compare(md.SignatureCandidates[0].IssuerFingerprint, expectedFingerprint) != 0 {
 				t.Fatalf(
 					"Message signed by wrong key id, got: %x, want: %x",
-					md.SignedByFingerprint, expectedFingerprint)
+					md.SignatureCandidates[0].IssuerFingerprint, expectedFingerprint)
 			}
-			if md.SignedBy == nil {
+			if md.SignatureCandidates[0] == nil {
 				t.Fatalf("Failed to find the signing Entity")
 			}
 
@@ -238,7 +241,7 @@ func encDecTest(t *testing.T, from testVector, testVectors []testVector) {
 				t.Fatalf("Signature error: %s", md.SignatureError)
 			}
 			if md.Signature == nil {
-				t.Error("Signature missing")
+				t.Error("Expected valid signature")
 			}
 		})
 	}

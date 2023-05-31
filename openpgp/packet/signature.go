@@ -636,6 +636,13 @@ func (sig *Signature) CheckKeyIdOrFingerprint(pk *PublicKey) bool {
 	return sig.IssuerKeyId != nil && *sig.IssuerKeyId == pk.KeyId
 }
 
+func (sig *Signature) CheckKeyIdOrFingerprintExplicit(fingerprint []byte, keyId uint64) bool {
+	if sig.IssuerFingerprint != nil && len(sig.IssuerFingerprint) >= 20 && fingerprint != nil {
+		return bytes.Equal(sig.IssuerFingerprint, fingerprint)
+	}
+	return sig.IssuerKeyId != nil && *sig.IssuerKeyId == keyId
+}
+
 // serializeSubpacketLength marshals the given length into to.
 func serializeSubpacketLength(to []byte, length int) int {
 	// RFC 4880, Section 4.2.2.
