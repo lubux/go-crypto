@@ -164,12 +164,16 @@ TryNextBlock:
 			break
 		}
 
-		i := bytes.Index(line, []byte(": "))
+		i := bytes.Index(line, []byte(":"))
 		if i == -1 {
 			goto TryNextBlock
 		}
 		lastKey = string(line[:i])
-		p.Header[lastKey] = string(line[i+2:])
+		var value string
+		if i+2 < len(line) {
+			value = string(line[i+2:])
+		}
+		p.Header[lastKey] = value
 	}
 
 	p.lReader.in = r
