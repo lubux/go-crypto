@@ -281,7 +281,7 @@ func TestEncryptWithCompression(t *testing.T) {
 	buf := new(bytes.Buffer)
 	var config = &packet.Config{
 		DefaultCompressionAlgo: packet.CompressionZIP,
-		CompressionConfig:      &packet.CompressionConfig{-1},
+		CompressionConfig:      &packet.CompressionConfig{Level: -1},
 	}
 	w, err := Encrypt(buf, kring[:1], nil, nil, nil /* no hints */, config)
 	if err != nil {
@@ -391,6 +391,9 @@ func TestSymmetricEncryptionV5RandomizeSlow(t *testing.T) {
 	packets := packet.NewReader(copiedBuf)
 	// First a SymmetricKeyEncrypted packet
 	p, err := packets.Next()
+	if err != nil {
+		t.Errorf("error reading packet: %s", err)
+	}
 	switch tp := p.(type) {
 	case *packet.SymmetricKeyEncrypted:
 	default:
@@ -398,6 +401,9 @@ func TestSymmetricEncryptionV5RandomizeSlow(t *testing.T) {
 	}
 	// Then an SymmetricallyEncrypted packet version 2
 	p, err = packets.Next()
+	if err != nil {
+		t.Errorf("error reading packet: %s", err)
+	}
 	switch tp := p.(type) {
 	case *packet.SymmetricallyEncrypted:
 		if tp.Version != 2 {
@@ -533,6 +539,9 @@ func TestIntendedRecipientsEncryption(t *testing.T) {
 	if err != nil {
 		t.Errorf("error reading encrypted contents: %s", err)
 	}
+	if !md.IsVerified {
+		t.Errorf("not verified despite all data read")
+	}
 	if _, ok := md.SignatureError.(errors.SignatureError); !ok {
 		t.Error("hidden recipient should not be in the intended recipient list")
 	}
@@ -552,6 +561,9 @@ func TestIntendedRecipientsEncryption(t *testing.T) {
 	_, err = ioutil.ReadAll(md.UnverifiedBody)
 	if err != nil {
 		t.Errorf("error reading encrypted contents: %s", err)
+	}
+	if !md.IsVerified {
+		t.Errorf("not verified despite all data read")
 	}
 	if md.SignatureError != nil {
 		t.Error("singature verification should pass")
@@ -612,7 +624,9 @@ func TestMultiSignEncryption(t *testing.T) {
 	if err != nil {
 		t.Errorf("error reading encrypted contents: %s", err)
 	}
-
+	if !md.IsVerified {
+		t.Errorf("not verified despite all data read")
+	}
 	if md.Signature == nil || md.SignatureError != nil {
 		t.Error("expected matching signature")
 	}
@@ -628,6 +642,9 @@ func TestMultiSignEncryption(t *testing.T) {
 	if err != nil {
 		t.Errorf("error reading encrypted contents: %s", err)
 	}
+	if !md.IsVerified {
+		t.Errorf("not verified despite all data read")
+	}
 	if md.Signature == nil || md.SignatureError != nil {
 		t.Error("expected matching signature")
 	}
@@ -642,6 +659,9 @@ func TestMultiSignEncryption(t *testing.T) {
 	_, err = ioutil.ReadAll(md.UnverifiedBody)
 	if err != nil {
 		t.Errorf("error reading encrypted contents: %s", err)
+	}
+	if !md.IsVerified {
+		t.Errorf("not verified despite all data read")
 	}
 	if md.Signature != nil || md.SignatureError == nil {
 		t.Error("expected error")
@@ -687,7 +707,7 @@ func TestEncryption(t *testing.T) {
 		}
 		compAlgo := compAlgos[mathrand.Intn(len(compAlgos))]
 		level := mathrand.Intn(11) - 1
-		compConf := &packet.CompressionConfig{level}
+		compConf := &packet.CompressionConfig{Level: level}
 		var config = &packet.Config{
 			DefaultCompressionAlgo: compAlgo,
 			CompressionConfig:      compConf,
@@ -765,6 +785,9 @@ func TestEncryption(t *testing.T) {
 		}
 
 		if test.isSigned {
+			if !md.IsVerified {
+				t.Errorf("not verified despite all data read")
+			}
 			if md.SignatureError != nil {
 				t.Errorf("#%d: signature error: %s", i, md.SignatureError)
 			}
@@ -861,6 +884,9 @@ func TestSigning(t *testing.T) {
 			t.Errorf("#%d: got: %q, want: %q", i, plaintext, message)
 		}
 
+		if !md.IsVerified {
+			t.Errorf("not verified despite all data read")
+		}
 		if md.SignatureError != nil {
 			t.Errorf("#%d: signature error: %q", i, md.SignatureError)
 		}
@@ -965,6 +991,9 @@ FindKey:
 	}
 
 	decPackets, err := packet.Read(decrypted)
+	if err != nil {
+		return
+	}
 	_, ok := decPackets.(*packet.Compressed)
 	if !ok {
 		return errors.InvalidArgumentError("No compressed packets found")

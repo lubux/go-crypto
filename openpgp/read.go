@@ -63,6 +63,7 @@ type MessageDetails struct {
 	// been consumed. Once EOF has been seen, the following fields are
 	// valid. (An authentication code failure is reported as a
 	// SignatureError error when reading from UnverifiedBody.)
+	IsVerified          bool                  // true if the signatures have been verified else false
 	SignatureCandidates []*SignatureCandidate // stores state for all signatures of this message
 	SignedBy            *Key                  // the issuer key of the fist successfully verified signature, if any found.
 	Signature           *packet.Signature     // the first successfully verified signature, if any found.
@@ -270,21 +271,18 @@ FindKey:
 
 // SignatureCandidate keeps state about a signature that can be potentially verified.
 type SignatureCandidate struct {
-	// Information
 	OPSVersion        int
 	SigType           packet.SignatureType
 	HashAlgorithm     crypto.Hash
 	PubKeyAlgo        packet.PublicKeyAlgorithm
 	IssuerKeyId       uint64
-	Salt              []byte // v6 only
 	IssuerFingerprint []byte // v6 only
+	Salt              []byte // v6 only
 
-	SignedBy *Key // the key of the signer, if available. (OPS)
-
-	SignatureError   error             // nil if the signature is valid or not checked.
-	CorrespondingSig *packet.Signature // the candidate's signature packet
-
-	Hash, WrappedHash hash.Hash // hashes for this signature candidate (OPS)
+	SignedBy          *Key              // the key of the signer, if available. (OPS)
+	SignatureError    error             // nil if the signature is valid or not checked.
+	CorrespondingSig  *packet.Signature // the candidate's signature packet
+	Hash, WrappedHash hash.Hash         // hashes for this signature candidate (OPS)
 }
 
 func newSignatureCandidate(ops *packet.OnePassSignature) (sigCandidate *SignatureCandidate) {
@@ -389,15 +387,7 @@ FindLiteralData:
 		}
 	}
 
-	// Check if there are signature candidates with no error
-	for _, candidate := range md.SignatureCandidates {
-		md.SignatureError = candidate.SignatureError
-		if candidate.SignatureError == nil {
-			break
-		}
-	}
-
-	if md.IsSigned && md.SignatureError == nil {
+	if md.IsSigned {
 		md.UnverifiedBody = &signatureCheckReader{packets, md, config, md.LiteralData.Body}
 	} else if md.decrypted != nil {
 		md.UnverifiedBody = checkReader{md}
@@ -522,8 +512,9 @@ func (scr *signatureCheckReader) Read(buf []byte) (int, error) {
 			candidate := scr.md.SignatureCandidates[sigIndex]
 			candidate.CorrespondingSig = sig
 			if !candidate.validate() {
-				candidate.SignatureError = errors.StructuralError("Signature does not match the expected ops data")
-			} else if candidate.SignatureError == nil {
+				candidate.SignatureError = errors.StructuralError("signature does not match the expected ops data")
+			}
+			if candidate.SignatureError == nil {
 				if candidate.SignedBy == nil {
 					candidate.SignatureError = errors.ErrUnknownIssuer
 					scr.md.SignatureError = candidate.SignatureError
@@ -556,9 +547,15 @@ func (scr *signatureCheckReader) Read(buf []byte) (int, error) {
 			}
 		}
 
-		if scr.md.SignatureError == nil && scr.md.Signature == nil {
-			scr.md.SignatureError = errors.StructuralError("No matching signature found")
+		if len(scr.md.SignatureCandidates) == 0 {
+			scr.md.SignatureError = errors.StructuralError("no signature found")
 		}
+
+		if scr.md.SignatureError == nil && scr.md.Signature == nil {
+			scr.md.SignatureError = errors.StructuralError("no matching signature found")
+		}
+
+		scr.md.IsVerified = true
 
 		// The SymmetricallyEncrypted packet, if any, might have an
 		// unsigned hash of its own. In order to check this we need to

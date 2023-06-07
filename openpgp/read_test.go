@@ -139,6 +139,9 @@ func checkSignedMessage(t *testing.T, signedHex, expected string) {
 	if err != nil {
 		t.Errorf("error reading UnverifiedBody: %s", err)
 	}
+	if !md.IsVerified {
+		t.Errorf("not verified despite all data read")
+	}
 	if string(contents) != expected {
 		t.Errorf("bad UnverifiedBody got:%s want:%s", string(contents), expected)
 	}
@@ -240,6 +243,9 @@ func TestSignedEncryptedMessage(t *testing.T) {
 		contents, err := ioutil.ReadAll(md.UnverifiedBody)
 		if err != nil {
 			t.Errorf("#%d: error reading UnverifiedBody: %s", i, err)
+		}
+		if !md.IsVerified {
+			t.Errorf("not verified despite all data read")
 		}
 		if string(contents) != expected {
 			t.Errorf("#%d: bad UnverifiedBody got:%s want:%s", i, string(contents), expected)
@@ -475,6 +481,9 @@ func TestSignatureKnownNotation(t *testing.T) {
 		t.Error(err)
 		return
 	}
+	if !md.IsVerified {
+		t.Errorf("not verified despite all data read")
+	}
 	if md.SignatureError != nil {
 		t.Error(md.SignatureError)
 		return
@@ -562,7 +571,9 @@ func TestSignatureV3Message(t *testing.T) {
 		t.Error(err)
 		return
 	}
-
+	if !md.IsVerified {
+		t.Errorf("not verified despite all data read")
+	}
 	// We'll see a sig error here after reading in the UnverifiedBody above,
 	// if there was one to see.
 	if err = md.SignatureError; err == nil {
@@ -617,10 +628,13 @@ func TestReadV6Messages(t *testing.T) {
 		t.Error(err)
 		return
 	}
+	if !md.IsVerified {
+		t.Errorf("not verified despite all data read")
+	}
 	if md.SignatureError != nil {
 		t.Error("expected no signature error, got:", md.SignatureError)
 	}
-	if string(contents) != "Hello, world!" {
+	if string(contents) != "What we need from the grocery store:\n\n- tofu\n- vegetables\n- noodles\n" {
 		t.Errorf("inline message is wrong: %s", contents)
 	}
 }
@@ -936,6 +950,9 @@ func TestMultiSignedMessage(t *testing.T) {
 	_, err = io.ReadAll(md.UnverifiedBody)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if !md.IsVerified {
+		t.Errorf("not verified despite all data read")
 	}
 
 	if md.Signature == nil {

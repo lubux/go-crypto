@@ -122,6 +122,9 @@ func decryptionTest(t *testing.T, vector testVector, sk openpgp.EntityList) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !md.IsVerified {
+		t.Errorf("not verified despite all data read")
+	}
 
 	stringBody := string(body)
 	if stringBody != vector.Message {
@@ -224,6 +227,9 @@ func encDecTest(t *testing.T, from testVector, testVectors []testVector) {
 			plaintext, err := ioutil.ReadAll(md.UnverifiedBody)
 			if err != nil {
 				t.Fatalf("Error reading encrypted contents: %s", err)
+			}
+			if !md.IsVerified {
+				t.Errorf("not verified despite all data read")
 			}
 			encryptKey, _ := pkTo[0].EncryptionKey(time.Now())
 			expectedEncKeyID := encryptKey.PublicKey.KeyId
