@@ -585,7 +585,6 @@ func TestSignatureV3Message(t *testing.T) {
 		t.Errorf("Did not expect a signature V4 back")
 		return
 	}
-	return
 }
 
 func TestReadV6Messages(t *testing.T) {
@@ -713,7 +712,7 @@ func TestSymmetricDecryptionArgon2(t *testing.T) {
 		t.Errorf("error reading UnverifiedBody: %s", err)
 	}
 
-	if "Hello, world!" != string(contents) {
+	if string(contents) != "Hello, world!" {
 		t.Fatal("Did not decrypt Argon message correctly")
 	}
 }
@@ -725,6 +724,9 @@ func TestAsymmestricAeadOcbOpenPGPjsCompressedMessage(t *testing.T) {
 		t.Fatal(err)
 	}
 	el, err := ReadArmoredKeyRing(armored)
+	if err != nil {
+		t.Fatal(err)
+	}
 	// Read ciphertext from file
 	ciphertext, err := os.Open("test_data/aead-ocb-asym-message.asc")
 	if err != nil {
@@ -776,6 +778,9 @@ func TestSymmetricAeadEaxOpenPGPJsMessage(t *testing.T) {
 	}
 	// Decode from base 64
 	raw, err := base64.StdEncoding.DecodeString(string(fileBytes))
+	if err != nil {
+		t.Fatal(err)
+	}
 	r := bytes.NewBuffer(raw)
 	// Read packet
 	p, err := packet.Read(r)
@@ -785,6 +790,9 @@ func TestSymmetricAeadEaxOpenPGPJsMessage(t *testing.T) {
 
 	// Decrypt with key
 	var edp packet.EncryptedDataPacket
+	if err != nil {
+		t.Fatal(err)
+	}
 	edp = p.(*packet.AEADEncrypted)
 	rc, err := edp.Decrypt(packet.CipherFunction(0), key)
 	if err != nil {
@@ -792,6 +800,9 @@ func TestSymmetricAeadEaxOpenPGPJsMessage(t *testing.T) {
 	}
 	// Read literal data packet
 	p, err = packet.Read(rc)
+	if err != nil {
+		t.Fatal(err)
+	}
 	ld := p.(*packet.LiteralData)
 
 	// Read contents
