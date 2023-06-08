@@ -26,11 +26,33 @@ import (
 	"github.com/ProtonMail/go-crypto/v2/openpgp/x448"
 )
 
-// NewEntity returns an Entity that contains a fresh RSA/RSA keypair with a
+type userIdData struct {
+	name, comment, email string
+}
+
+// NewEntityWithoutId returns an Entity that contains fresh keys for signing and
+// encrypting pgp messages. The key is not associated with an identity.
+// This is only allowed for v6 key generation. If v6 is not enabled,
+// it will return an error.
+// If config is nil, sensible defaults will be used.
+func NewEntityWithoutId(config *packet.Config) (*Entity, error) {
+	return newEntity(nil, config)
+}
+
+// NewEntity returns an Entity that contains fresh keys with a for signing and
+// encrypting pgp messages. The key is associated with a
 // single identity composed of the given full name, comment and email, any of
 // which may be empty but must not contain any of "()<>\x00".
 // If config is nil, sensible defaults will be used.
 func NewEntity(name, comment, email string, config *packet.Config) (*Entity, error) {
+	return newEntity(&userIdData{name, comment, email}, config)
+}
+
+func newEntity(uid *userIdData, config *packet.Config) (*Entity, error) {
+	if uid == nil && !config.V6() {
+		return nil, errors.InvalidArgumentError("user id has to be set for non-v6 keys")
+	}
+
 	creationTime := config.Now()
 	keyLifetimeSecs := config.KeyLifetime()
 
@@ -53,23 +75,13 @@ func NewEntity(name, comment, email string, config *packet.Config) (*Entity, err
 	}
 
 	if config.V6() {
-		// In v6 keys algorithm preferences should be stored in direct key signatures
-		selfSignature := createSignaturePacket(&primary.PublicKey, packet.SigTypeDirectSignature, config)
-		err = writeKeyProperties(selfSignature, creationTime, keyLifetimeSecs, config)
-		if err != nil {
-			return nil, err
-		}
-		err = selfSignature.SignDirectKeyBinding(&primary.PublicKey, primary, config)
-		if err != nil {
-			return nil, err
-		}
-		e.Signatures = append(e.Signatures, selfSignature)
-		e.SelfSignature = selfSignature
+		e.AddDirectKeySignature(config)
 	}
-
-	err = e.addUserId(name, comment, email, config, creationTime, keyLifetimeSecs, !config.V6())
-	if err != nil {
-		return nil, err
+	if uid != nil {
+		err = e.addUserId(*uid, config, creationTime, keyLifetimeSecs, !config.V6())
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// NOTE: No key expiry here, but we will not return this subkey in EncryptionKey()
@@ -85,7 +97,24 @@ func NewEntity(name, comment, email string, config *packet.Config) (*Entity, err
 func (t *Entity) AddUserId(name, comment, email string, config *packet.Config) error {
 	creationTime := config.Now()
 	keyLifetimeSecs := config.KeyLifetime()
-	return t.addUserId(name, comment, email, config, creationTime, keyLifetimeSecs, !config.V6())
+	return t.addUserId(userIdData{name, comment, email}, config, creationTime, keyLifetimeSecs, !config.V6())
+}
+
+func (t *Entity) AddDirectKeySignature(config *packet.Config) error {
+	selfSignature := createSignaturePacket(&t.PrivateKey.PublicKey, packet.SigTypeDirectSignature, config)
+	creationTime := config.Now()
+	keyLifetimeSecs := config.KeyLifetime()
+	err := writeKeyProperties(selfSignature, creationTime, keyLifetimeSecs, config)
+	if err != nil {
+		return err
+	}
+	err = selfSignature.SignDirectKeyBinding(&t.PrivateKey.PublicKey, t.PrivateKey, config)
+	if err != nil {
+		return err
+	}
+	t.Signatures = append(t.Signatures, selfSignature)
+	t.SelfSignature = selfSignature
+	return nil
 }
 
 func writeKeyProperties(selfSignature *packet.Signature, creationTime time.Time, keyLifetimeSecs uint32, config *packet.Config) error {
@@ -139,8 +168,8 @@ func writeKeyProperties(selfSignature *packet.Signature, creationTime time.Time,
 	return nil
 }
 
-func (t *Entity) addUserId(name, comment, email string, config *packet.Config, creationTime time.Time, keyLifetimeSecs uint32, writeProperties bool) error {
-	uid := packet.NewUserId(name, comment, email)
+func (t *Entity) addUserId(userIdData userIdData, config *packet.Config, creationTime time.Time, keyLifetimeSecs uint32, writeProperties bool) error {
+	uid := packet.NewUserId(userIdData.name, userIdData.comment, userIdData.email)
 	if uid == nil {
 		return errors.InvalidArgumentError("user id field contained invalid characters")
 	}
@@ -186,7 +215,8 @@ func (e *Entity) AddSigningSubkey(config *packet.Config) error {
 	}
 	sub := packet.NewSignerPrivateKey(creationTime, subPrivRaw)
 	sub.IsSubkey = true
-	if config.V6() {
+	// Every subkey for a v6 primary key MUST be a v6 subkey.
+	if e.PrimaryKey.Version == 6 {
 		sub.UpgradeToV6()
 	}
 
@@ -231,7 +261,8 @@ func (e *Entity) addEncryptionSubkey(config *packet.Config, creationTime time.Ti
 	}
 	sub := packet.NewDecrypterPrivateKey(creationTime, subPrivRaw)
 	sub.IsSubkey = true
-	if config.V6() {
+	// Every subkey for a v6 primary key MUST be a v6 subkey.
+	if e.PrimaryKey.Version == 6 {
 		sub.UpgradeToV6()
 	}
 

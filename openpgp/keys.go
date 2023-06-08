@@ -126,7 +126,7 @@ func (e *Entity) EncryptionKey(now time.Time) (Key, bool) {
 	if primarySelfSignature == nil || // no self-signature found
 		e.PrimaryKey.KeyExpired(primarySelfSignature, now) || // primary key has expired
 		e.Revoked(now) || // primary key has been revoked
-		primarySelfSignature.SigExpired(now) || // user ID self-signature has expired
+		primarySelfSignature.SigExpired(now) || // self-signature has expired
 		(primaryIdentity != nil && primaryIdentity.Revoked(now)) { // user ID has been revoked (for v4 keys)
 		return Key{}, false
 	}
