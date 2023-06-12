@@ -708,6 +708,11 @@ func SignWithParams(output io.Writer, signers []*Entity, params *SignParams) (in
 		return nil, errors.InvalidArgumentError("no signer provided")
 	}
 	var candidateHashesPerSignature [][]uint8
+	candidateCompression := []uint8{
+		uint8(packet.CompressionNone),
+		uint8(packet.CompressionZIP),
+		uint8(packet.CompressionZLIB),
+	}
 	for _, signer := range signers {
 		// These are the possible hash functions that we'll use for the signature.
 		candidateHashes := []uint8{
@@ -731,13 +736,22 @@ func SignWithParams(output io.Writer, signers []*Entity, params *SignParams) (in
 			return nil, errors.InvalidArgumentError("cannot sign because signing key shares no common algorithms with candidate hashes")
 		}
 		candidateHashesPerSignature = append(candidateHashesPerSignature, candidateHashes)
+		candidateCompression = intersectPreferences(candidateCompression, primarySelfSignature.PreferredCompression)
+
 	}
 
 	sigType := packet.SigTypeBinary
 	if params.TextSig {
 		sigType = packet.SigTypeText
 	}
-	return writeAndSign(noOpCloser{output}, candidateHashesPerSignature, signers, params.Hints, sigType, nil, params.Config)
+
+	var payload io.WriteCloser
+	payload = noOpCloser{output}
+	payload, err = handleCompression(payload, candidateCompression, params.Config)
+	if err != nil {
+		return nil, err
+	}
+	return writeAndSign(payload, candidateHashesPerSignature, signers, params.Hints, sigType, nil, params.Config)
 }
 
 // Sign signs a message. The resulting WriteCloser must be closed after the
