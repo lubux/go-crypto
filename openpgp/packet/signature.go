@@ -1230,7 +1230,7 @@ func (sig *Signature) buildSubpackets(issuer PublicKey) (subpackets []outputSubp
 			outputSubpacket{
 				true,
 				intendedRecipientSubpacket,
-				true,
+				false,
 				recipient.Serialize(),
 			})
 	}
