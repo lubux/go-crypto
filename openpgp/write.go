@@ -334,22 +334,6 @@ func EncryptWithParams(ciphertext io.Writer, to, toHidden []*Entity, params *Enc
 	return encrypt(to, toHidden, ciphertext, params)
 }
 
-// EncryptText encrypts a message to a number of recipients and, optionally,
-// signs it. Optional information is contained in 'hints', also encrypted, that
-// aids the recipients in processing the message. The resulting WriteCloser
-// must be closed after the contents of the file have been written. If config
-// The to argument contains recipients that are explicitly mentioned in signatures and encrypted keys,
-// whereas the toHidden argument contains recipients that will be hidden and not mentioned.
-// is nil, sensible defaults will be used. The signing is done in text mode.
-func EncryptText(ciphertext io.Writer, to, toHidden []*Entity, signers []*Entity, hints *FileHints, config *packet.Config) (plaintext io.WriteCloser, err error) {
-	return EncryptWithParams(ciphertext, to, toHidden, &EncryptParams{
-		Signers: signers,
-		Hints:   hints,
-		Config:  config,
-		TextSig: true,
-	})
-}
-
 // Encrypt encrypts a message to a number of recipients and, optionally, signs
 // it. hints contains optional information, that is also encrypted, that aids
 // the recipients in processing the message. The resulting WriteCloser must
@@ -362,39 +346,6 @@ func Encrypt(ciphertext io.Writer, to, toHidden []*Entity, signers []*Entity, hi
 		Signers: signers,
 		Hints:   hints,
 		Config:  config,
-	})
-}
-
-// EncryptSplit encrypts a message to a number of recipients and, optionally, signs
-// it. hints contains optional information, that is also encrypted, that aids
-// the recipients in processing the message. The resulting WriteCloser must
-// be closed after the contents of the file have been written.
-// The to argument contains recipients that are explicitly mentioned in signatures and encrypted keys,
-// whereas the toHidden argument contains recipients that will be hidden and not mentioned.
-// If config is nil, sensible defaults will be used.
-func EncryptSplit(keyWriter io.Writer, dataWriter io.Writer, to, toHidden []*Entity, signers []*Entity, hints *FileHints, config *packet.Config) (plaintext io.WriteCloser, err error) {
-	return EncryptWithParams(dataWriter, to, toHidden, &EncryptParams{
-		KeyWriter: keyWriter,
-		Signers:   signers,
-		Hints:     hints,
-		Config:    config,
-	})
-}
-
-// EncryptTextSplit encrypts a message to a number of recipients and, optionally, signs
-// it. hints contains optional information, that is also encrypted, that aids
-// the recipients in processing the message. The resulting WriteCloser must
-// be closed after the contents of the file have been written.
-// The to argument contains recipients that are explicitly mentioned in signatures and encrypted keys,
-// whereas the toHidden argument contains recipients that will be hidden and not mentioned.
-// If config is nil, sensible defaults will be used.
-func EncryptTextSplit(keyWriter io.Writer, dataWriter io.Writer, to, toHidden []*Entity, signers []*Entity, hints *FileHints, config *packet.Config) (plaintext io.WriteCloser, err error) {
-	return EncryptWithParams(dataWriter, to, toHidden, &EncryptParams{
-		KeyWriter: keyWriter,
-		Signers:   signers,
-		Hints:     hints,
-		Config:    config,
-		TextSig:   true,
 	})
 }
 
