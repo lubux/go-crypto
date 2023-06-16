@@ -686,6 +686,7 @@ func verifyDetachedSignatureReader(keyring KeyRing, signed, signature io.Reader,
 // ignore any other errors.
 func checkSignatureDetails(key *Key, signature *packet.Signature, config *packet.Config) error {
 	now := config.Now()
+	sigTime := signature.CreationTime
 	primarySelfSignature, primaryIdentity := key.Entity.PrimarySelfSignature()
 	signedBySubKey := key.PublicKey != key.Entity.PrimaryKey
 	sigsToCheck := []*packet.Signature{signature, primarySelfSignature}
@@ -699,16 +700,16 @@ func checkSignatureDetails(key *Key, signature *packet.Signature, config *packet
 			}
 		}
 	}
-	if key.Entity.Revoked(now) || // primary key is revoked
-		(signedBySubKey && key.Revoked(now)) || // subkey is revoked
-		(primaryIdentity != nil && primaryIdentity.Revoked(now)) { // primary identity is revoked for v4
+	if key.Entity.Revoked(sigTime) || // primary key is revoked
+		(signedBySubKey && key.Revoked(sigTime)) || // subkey is revoked
+		(primaryIdentity != nil && primaryIdentity.Revoked(sigTime)) { // primary identity is revoked for v4
 		return errors.ErrKeyRevoked
 	}
-	if key.Entity.PrimaryKey.KeyExpired(primarySelfSignature, now) { // primary key is expired
+	if key.Entity.PrimaryKey.KeyExpired(primarySelfSignature, sigTime) { // primary key is expired
 		return errors.ErrKeyExpired
 	}
 	if signedBySubKey {
-		if key.PublicKey.KeyExpired(key.SelfSignature, now) { // subkey is expired
+		if key.PublicKey.KeyExpired(key.SelfSignature, sigTime) { // subkey is expired
 			return errors.ErrKeyExpired
 		}
 	}
