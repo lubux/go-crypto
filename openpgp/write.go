@@ -135,14 +135,35 @@ func detachSignWithWriter(w io.Writer, signers []*Entity, sigType packet.Signatu
 		if signingKey.PrivateKey.Encrypted {
 			return nil, errors.InvalidArgumentError("signing key is encrypted")
 		}
-		if _, ok := algorithm.HashToHashId(config.Hash()); !ok {
-			return nil, errors.InvalidArgumentError("invalid hash function")
+		candidateHashes := []uint8{
+			hashToHashId(crypto.SHA256),
+			hashToHashId(crypto.SHA384),
+			hashToHashId(crypto.SHA512),
+			hashToHashId(crypto.SHA3_256),
+			hashToHashId(crypto.SHA3_512),
 		}
+		defaultHashes := candidateHashes[0:1]
+		primarySelfSignature, _ := signer.PrimarySelfSignature()
+		if primarySelfSignature == nil {
+			return nil, errors.InvalidArgumentError("signed entity has no self-signature")
+		}
+		preferredHashes := primarySelfSignature.PreferredHash
+		if len(preferredHashes) == 0 {
+			preferredHashes = defaultHashes
+		}
+		candidateHashes = intersectPreferences(candidateHashes, preferredHashes)
+
+		var hash crypto.Hash
+		if hash, err = selectHash(candidateHashes, config.Hash()); err != nil {
+			return
+		}
+
 		detachSignCtx := detachSignContext{
 			signer: signingKey.PrivateKey,
 		}
 
 		detachSignCtx.sig = createSignaturePacket(signingKey.PublicKey, sigType, config)
+		detachSignCtx.sig.Hash = hash
 
 		detachSignCtx.h, err = detachSignCtx.sig.PrepareSign(config)
 		if err != nil {
@@ -374,32 +395,9 @@ func writeAndSign(payload io.WriteCloser, candidateHashes [][]uint8, signEntitie
 		sigContext := signatureContext{
 			signer: signer,
 		}
-
-		var hash crypto.Hash
-		for _, hashId := range candidateHashes[signEntityIdx] {
-			if h, ok := algorithm.HashIdToHash(hashId); ok && h.Available() {
-				hash = h
-				break
-			}
-		}
-
-		// If the hash specified by config is a candidate, we'll use that.
-		if configuredHash := config.Hash(); configuredHash.Available() {
-			for _, hashId := range candidateHashes[signEntityIdx] {
-				if h, ok := algorithm.HashIdToHash(hashId); ok && h == configuredHash {
-					hash = h
-					break
-				}
-			}
-		}
-
-		if hash == 0 {
-			hashId := candidateHashes[signEntityIdx][0]
-			name, ok := algorithm.HashIdToString(hashId)
-			if !ok {
-				name = "#" + strconv.Itoa(int(hashId))
-			}
-			return nil, errors.InvalidArgumentError("cannot encrypt because no candidate hash functions are compiled in. (Wanted " + name + " in this case.)")
+		hash, err := selectHash(candidateHashes[signEntityIdx], config.Hash())
+		if err != nil {
+			return nil, err
 		}
 		sigContext.hashType = hash
 
@@ -835,4 +833,34 @@ func handleCompression(compressed io.WriteCloser, candidateCompression []uint8, 
 		}
 	}
 	return data, nil
+}
+
+// selectHash selects the preferred hash given the candidateHashes and the configuredHash
+func selectHash(candidateHashes []byte, configuredHash crypto.Hash) (hash crypto.Hash, err error) {
+	for _, hashId := range candidateHashes {
+		if h, ok := algorithm.HashIdToHash(hashId); ok && h.Available() {
+			hash = h
+			break
+		}
+	}
+
+	// If the hash specified by config is a candidate, we'll use that.
+	if configuredHash.Available() {
+		for _, hashId := range candidateHashes {
+			if h, ok := algorithm.HashIdToHash(hashId); ok && h == configuredHash {
+				hash = h
+				break
+			}
+		}
+	}
+
+	if hash == 0 {
+		hashId := candidateHashes[0]
+		name, ok := algorithm.HashIdToString(hashId)
+		if !ok {
+			name = "#" + strconv.Itoa(int(hashId))
+		}
+		return 0, errors.InvalidArgumentError("no candidate hash functions are compiled in. (Wanted " + name + " in this case.)")
+	}
+	return
 }
