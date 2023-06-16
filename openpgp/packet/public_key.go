@@ -993,12 +993,12 @@ func (pk *PublicKey) BitLength() (bitLength uint16, err error) {
 // KeyExpired returns whether sig is a self-signature of a key that has
 // expired or is created in the future.
 func (pk *PublicKey) KeyExpired(sig *Signature, currentTime time.Time) bool {
-	if pk.CreationTime.After(currentTime) {
+	if pk.CreationTime.Unix() > currentTime.Unix() {
 		return true
 	}
 	if sig.KeyLifetimeSecs == nil || *sig.KeyLifetimeSecs == 0 {
 		return false
 	}
 	expiry := pk.CreationTime.Add(time.Duration(*sig.KeyLifetimeSecs) * time.Second)
-	return currentTime.After(expiry)
+	return currentTime.Unix() > expiry.Unix()
 }

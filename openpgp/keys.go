@@ -115,7 +115,7 @@ func shouldPreferIdentity(existingId, potentialNewId *Identity) bool {
 		return true
 	}
 
-	return potentialNewId.SelfSignature.CreationTime.After(existingId.SelfSignature.CreationTime)
+	return potentialNewId.SelfSignature.CreationTime.Unix() >= existingId.SelfSignature.CreationTime.Unix()
 }
 
 // EncryptionKey returns the best candidate Key for encrypting a message to the
@@ -141,7 +141,7 @@ func (e *Entity) EncryptionKey(now time.Time) (Key, bool) {
 			!subkey.PublicKey.KeyExpired(subkey.Sig, now) &&
 			!subkey.Sig.SigExpired(now) &&
 			!subkey.Revoked(now) &&
-			(maxTime.IsZero() || subkey.Sig.CreationTime.After(maxTime)) {
+			(maxTime.IsZero() || subkey.Sig.CreationTime.Unix() >= maxTime.Unix()) {
 			candidateSubkey = i
 			maxTime = subkey.Sig.CreationTime
 		}
@@ -208,7 +208,7 @@ func (e *Entity) signingKeyByIdUsage(now time.Time, id uint64, flags int) (Key, 
 			!subkey.PublicKey.KeyExpired(subkey.Sig, now) &&
 			!subkey.Sig.SigExpired(now) &&
 			!subkey.Revoked(now) &&
-			(maxTime.IsZero() || subkey.Sig.CreationTime.After(maxTime)) &&
+			(maxTime.IsZero() || subkey.Sig.CreationTime.Unix() >= maxTime.Unix()) &&
 			(id == 0 || subkey.PublicKey.KeyId == id) {
 			candidateSubkey = idx
 			maxTime = subkey.Sig.CreationTime
@@ -541,7 +541,7 @@ EachPacket:
 			if directSignature.SigType == packet.SigTypeDirectSignature &&
 				directSignature.CheckKeyIdOrFingerprint(e.PrimaryKey) &&
 				(mainDirectKeySelfSignature == nil ||
-					directSignature.CreationTime.After(mainDirectKeySelfSignature.CreationTime)) {
+					directSignature.CreationTime.Unix() >= mainDirectKeySelfSignature.CreationTime.Unix()) {
 				mainDirectKeySelfSignature = directSignature
 			}
 		}
@@ -606,7 +606,7 @@ func addUserID(e *Entity, packets *packet.Reader, pkt *packet.UserId) error {
 			}
 			if sig.SigType == packet.SigTypeCertificationRevocation {
 				identity.Revocations = append(identity.Revocations, sig)
-			} else if identity.SelfSignature == nil || sig.CreationTime.After(identity.SelfSignature.CreationTime) {
+			} else if identity.SelfSignature == nil || sig.CreationTime.Unix() >= identity.SelfSignature.CreationTime.Unix() {
 				identity.SelfSignature = sig
 			}
 			identity.Signatures = append(identity.Signatures, sig)
@@ -650,7 +650,7 @@ func addSubkey(e *Entity, packets *packet.Reader, pub *packet.PublicKey, priv *p
 		case packet.SigTypeSubkeyRevocation:
 			subKey.Revocations = append(subKey.Revocations, sig)
 		case packet.SigTypeSubkeyBinding:
-			if subKey.Sig == nil || sig.CreationTime.After(subKey.Sig.CreationTime) {
+			if subKey.Sig == nil || sig.CreationTime.Unix() >= subKey.Sig.CreationTime.Unix() {
 				subKey.Sig = sig
 			}
 		}

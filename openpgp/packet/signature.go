@@ -697,14 +697,14 @@ func serializeSubpackets(to []byte, subpackets []outputSubpacket, hashed bool) {
 // SigExpired returns whether sig is a signature that has expired or is created
 // in the future.
 func (sig *Signature) SigExpired(currentTime time.Time) bool {
-	if sig.CreationTime.After(currentTime) {
+	if sig.CreationTime.Unix() > currentTime.Unix() {
 		return true
 	}
 	if sig.SigLifetimeSecs == nil || *sig.SigLifetimeSecs == 0 {
 		return false
 	}
 	expiry := sig.CreationTime.Add(time.Duration(*sig.SigLifetimeSecs) * time.Second)
-	return currentTime.After(expiry)
+	return currentTime.Unix() > expiry.Unix()
 }
 
 // buildHashSuffix constructs the HashSuffix member of sig in preparation for signing.
