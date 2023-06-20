@@ -107,8 +107,12 @@ func ReadMessage(r io.Reader, keyring KeyRing, prompt PromptFunction, config *pa
 	var pubKeys []keyEnvelopePair
 	// Integrity protected encrypted packet: SymmetricallyEncrypted or AEADEncrypted
 	var edp packet.EncryptedDataPacket
-
-	packets := packet.NewReader(r)
+	var packets packet.PacketReader
+	if config.StrictPacketSequence() {
+		packets = packet.NewCheckReader(r)
+	} else {
+		packets = packet.NewReader(r)
+	}
 	md = new(MessageDetails)
 	md.IsEncrypted = true
 	md.CheckRecipients = config.IntendedRecipients()
@@ -344,7 +348,7 @@ func (sc *SignatureCandidate) validate() bool {
 // readSignedMessage reads a possibly signed message if mdin is non-zero then
 // that structure is updated and returned. Otherwise a fresh MessageDetails is
 // used.
-func readSignedMessage(packets *packet.Reader, mdin *MessageDetails, keyring KeyRing, config *packet.Config) (md *MessageDetails, err error) {
+func readSignedMessage(packets packet.PacketReader, mdin *MessageDetails, keyring KeyRing, config *packet.Config) (md *MessageDetails, err error) {
 	if mdin == nil {
 		mdin = new(MessageDetails)
 	}
@@ -406,10 +410,8 @@ FindLiteralData:
 
 	if md.IsSigned {
 		md.UnverifiedBody = &signatureCheckReader{packets, md, config, md.LiteralData.Body}
-	} else if md.decrypted != nil {
-		md.UnverifiedBody = checkReader{md}
 	} else {
-		md.UnverifiedBody = md.LiteralData.Body
+		md.UnverifiedBody = checkReader{md, packets}
 	}
 
 	return md, nil
@@ -458,23 +460,32 @@ func hashForSignature(hashFunc crypto.Hash, sigType packet.SignatureType, sigSal
 // it closes the ReadCloser from any SymmetricallyEncrypted packet to trigger
 // MDC checks.
 type checkReader struct {
-	md *MessageDetails
+	md      *MessageDetails
+	packets packet.PacketReader
 }
 
 func (cr checkReader) Read(buf []byte) (int, error) {
 	n, sensitiveParsingError := cr.md.LiteralData.Body.Read(buf)
 	if sensitiveParsingError == io.EOF {
-		mdcErr := cr.md.decrypted.Close()
-		if mdcErr != nil {
-			return n, mdcErr
+		for {
+			_, err := cr.packets.Next()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				return 0, err
+			}
+		}
+		if cr.md.decrypted != nil {
+			if mdcErr := cr.md.decrypted.Close(); mdcErr != nil {
+				return n, mdcErr
+			}
 		}
 		return n, io.EOF
 	}
-
 	if sensitiveParsingError != nil {
 		return n, errors.StructuralError("parsing error")
 	}
-
 	return n, nil
 }
 
@@ -482,7 +493,7 @@ func (cr checkReader) Read(buf []byte) (int, error) {
 // the data as it is read. When it sees an EOF from the underlying io.Reader
 // it parses and checks a trailing Signature packet and triggers any MDC checks.
 type signatureCheckReader struct {
-	packets *packet.Reader
+	packets packet.PacketReader
 	md      *MessageDetails
 	config  *packet.Config
 	data    io.Reader
@@ -498,20 +509,24 @@ func (scr *signatureCheckReader) Read(buf []byte) (int, error) {
 	}
 
 	if sensitiveParsingError == io.EOF {
-		var p packet.Packet
-		var readError error
 		var signatures []*packet.Signature
 
 		// Read all signature packets.
-		p, readError = scr.packets.Next()
-		for readError == nil {
+
+		for {
+			p, err := scr.packets.Next()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				return 0, errors.StructuralError("parsing error")
+			}
 			if sig, ok := p.(*packet.Signature); ok {
 				if sig.Version == 5 && scr.md.LiteralData != nil && (sig.SigType == 0x00 || sig.SigType == 0x01) {
 					sig.Metadata = scr.md.LiteralData
 				}
 				signatures = append(signatures, sig)
 			}
-			p, readError = scr.packets.Next()
 		}
 		numberOfOpsSignatures := 0
 		for _, candidate := range scr.md.SignatureCandidates {
@@ -590,6 +605,17 @@ func (scr *signatureCheckReader) Read(buf []byte) (int, error) {
 		}
 
 		scr.md.IsVerified = true
+
+		for {
+			_, err := scr.packets.Next()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				return 0, errors.StructuralError("parsing error")
+			}
+
+		}
 
 		// The SymmetricallyEncrypted packet, if any, might have an
 		// unsigned hash of its own. In order to check this we need to

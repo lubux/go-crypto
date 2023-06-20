@@ -143,6 +143,11 @@ type Config struct {
 	// if a session key if any should be cached and returned in
 	// a pgp message decryption.
 	CacheSessionKey bool
+	// CheckPacketSequence is a flag that indicates
+	// if the pgp message parser should strictly check
+	// that the packet sequence conforms with the grammar mandated by rfc4880.
+	// The default value is true.
+	CheckPacketSequence *bool
 }
 
 func (c *Config) Random() io.Reader {
@@ -339,4 +344,11 @@ func (c *Config) RejectCurve(curve Curve) bool {
 		rejectedCurve = c.RejectCurves
 	}
 	return rejectedCurve[curve]
+}
+
+func (c *Config) StrictPacketSequence() bool {
+	if c == nil || c.CheckPacketSequence == nil {
+		return true
+	}
+	return *c.CheckPacketSequence
 }
