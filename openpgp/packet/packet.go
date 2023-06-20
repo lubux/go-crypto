@@ -395,6 +395,78 @@ func Read(r io.Reader) (p Packet, err error) {
 	return
 }
 
+// ReadWithCheck reads a single OpenPGP message packet from the given io.Reader. If there is an
+// error parsing a packet, the whole packet is consumed from the input.
+// ReadWithCheck additionally checks if the OpenPGP message packet sequence adheres
+// to the packet composition rules in rfc4880, if not throws an error.
+func ReadWithCheck(r io.Reader, sequence *SequenceVerifier) (p Packet, msgErr error, err error) {
+	tag, len, contents, err := readHeader(r)
+	if err != nil {
+		return
+	}
+	switch tag {
+	case packetTypeEncryptedKey:
+		msgErr = sequence.Next(ESKSymbol)
+		p = new(EncryptedKey)
+	case packetTypeSignature:
+		msgErr = sequence.Next(SigSymbol)
+		p = new(Signature)
+	case packetTypeSymmetricKeyEncrypted:
+		msgErr = sequence.Next(ESKSymbol)
+		p = new(SymmetricKeyEncrypted)
+	case packetTypeOnePassSignature:
+		msgErr = sequence.Next(OPSSymbol)
+		p = new(OnePassSignature)
+	case packetTypeCompressed:
+		msgErr = sequence.Next(CompSymbol)
+		p = new(Compressed)
+	case packetTypeSymmetricallyEncrypted:
+		msgErr = sequence.Next(EncSymbol)
+		p = new(SymmetricallyEncrypted)
+	case packetTypeLiteralData:
+		msgErr = sequence.Next(LDSymbol)
+		p = new(LiteralData)
+	case packetTypeSymmetricallyEncryptedIntegrityProtected:
+		msgErr = sequence.Next(EncSymbol)
+		se := new(SymmetricallyEncrypted)
+		se.IntegrityProtected = true
+		p = se
+	case packetTypeAEADEncrypted:
+		msgErr = sequence.Next(EncSymbol)
+		p = new(AEADEncrypted)
+	case packetPadding:
+		p = Padding(len)
+	case packetTypeMarker:
+		p = new(Marker)
+	case packetTypeTrust:
+		// Not implemented, just consume
+		err = errors.UnknownPacketTypeError(tag)
+	case packetTypePrivateKey,
+		packetTypePrivateSubkey,
+		packetTypePublicKey,
+		packetTypePublicSubkey,
+		packetTypeUserId,
+		packetTypeUserAttribute:
+		msgErr = sequence.Next(UnknownSymbol)
+		consumeAll(contents)
+	default:
+		// Packet Tags from 0 to 39 are critical.
+		// Packet Tags from 40 to 63 are non-critical.
+		if tag < 40 {
+			err = errors.CriticalUnknownPacketTypeError(tag)
+		} else {
+			err = errors.UnknownPacketTypeError(tag)
+		}
+	}
+	if p != nil {
+		err = p.parse(contents)
+	}
+	if err != nil {
+		consumeAll(contents)
+	}
+	return
+}
+
 // SignatureType represents the different semantic meanings of an OpenPGP
 // signature. See RFC 4880, section 5.2.1.
 type SignatureType uint8

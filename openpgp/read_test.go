@@ -978,3 +978,39 @@ func TestMultiSignedMessage(t *testing.T) {
 		t.Error("First candidate should fail in verification, got: nil")
 	}
 }
+
+func TestMalformedMessage(t *testing.T) {
+	keyring, err := ReadArmoredKeyRing(strings.NewReader(malformedKeyTest))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Run("Signature + Literal", func(t *testing.T) {
+		testMalformedMessage(t, keyring, malformedLiteralSignature)
+	})
+	t.Run("Two literals, 1st compressed 4 times", func(t *testing.T) {
+		testMalformedMessage(t, keyring, malformedTwoLiteralsCompressed)
+	})
+	t.Run("PKESK + Literal", func(t *testing.T) {
+		testMalformedMessage(t, keyring, malformedPKESKLiteral)
+	})
+	t.Run("OPS + Literal", func(t *testing.T) {
+		testMalformedMessage(t, keyring, malformedOPSLiteral)
+	})
+}
+
+func testMalformedMessage(t *testing.T, keyring EntityList, message string) {
+	raw, err := armor.Decode(strings.NewReader(message))
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	md, err := ReadMessage(raw.Body, keyring, nil, nil)
+	if err != nil {
+		return
+	}
+	_, err = io.ReadAll(md.UnverifiedBody)
+	if err == nil {
+		t.Error("Expected malformed message error")
+		return
+	}
+}
