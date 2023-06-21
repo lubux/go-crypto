@@ -116,6 +116,12 @@ func (ar *aeadDecrypter) Read(dst []byte) (n int, err error) {
 // checked in the last Read call. In the future, this function could be used to
 // wipe the reader and peeked, decrypted bytes, if necessary.
 func (ar *aeadDecrypter) Close() (err error) {
+	if !ar.eof {
+		errChunk := ar.validateFinalTag(ar.peekedBytes)
+		if errChunk != nil {
+			return errChunk
+		}
+	}
 	return nil
 }
 
