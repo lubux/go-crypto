@@ -311,7 +311,9 @@ const (
 	packetTypePrivateSubkey                            packetType = 7
 	packetTypeCompressed                               packetType = 8
 	packetTypeSymmetricallyEncrypted                   packetType = 9
+	packetTypeMarker                                   packetType = 10
 	packetTypeLiteralData                              packetType = 11
+	packetTypeTrust                                    packetType = 12
 	packetTypeUserId                                   packetType = 13
 	packetTypePublicSubkey                             packetType = 14
 	packetTypeUserAttribute                            packetType = 17
@@ -370,8 +372,19 @@ func Read(r io.Reader) (p Packet, err error) {
 		p = new(AEADEncrypted)
 	case packetPadding:
 		p = Padding(len)
-	default:
+	case packetTypeMarker:
+		p = new(Marker)
+	case packetTypeTrust:
+		// Not implemented, just consume
 		err = errors.UnknownPacketTypeError(tag)
+	default:
+		// Packet Tags from 0 to 39 are critical.
+		// Packet Tags from 40 to 63 are non-critical.
+		if tag < 40 {
+			err = errors.CriticalUnknownPacketTypeError(tag)
+		} else {
+			err = errors.UnknownPacketTypeError(tag)
+		}
 	}
 	if p != nil {
 		err = p.parse(contents)
