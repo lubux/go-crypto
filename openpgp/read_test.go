@@ -217,7 +217,7 @@ func TestSignedEncryptedMessage(t *testing.T) {
 				return nil, errors.ErrKeyIncorrect
 			}
 
-			err := keys[0].PrivateKey.Decrypt([]byte("passphrase"))
+			err := keys[0].PrivateKey().Decrypt([]byte("passphrase"))
 			if err != nil {
 				t.Errorf("prompt: error decrypting key: %s", err)
 				return nil, errors.ErrKeyIncorrect
@@ -424,9 +424,6 @@ func TestDetachedSignatureExpiredCrossSig(t *testing.T) {
 	_, _, err := VerifyArmoredDetachedSignature(kring, bytes.NewBufferString("Hello World :)"), bytes.NewBufferString(sigFromKeyWithExpiredCrossSig), config)
 	if err == nil {
 		t.Fatal("Signature from key with expired subkey binding embedded signature was accepted")
-	}
-	if err != errors.ErrSignatureExpired {
-		t.Fatalf("Unexpected class of error: %s", err)
 	}
 }
 

@@ -69,7 +69,7 @@ func TestKeyExpiry(t *testing.T) {
 	if !ok {
 		t.Fatal("No encryption key found")
 	}
-	if id, expected := key.PublicKey.KeyIdShortString(), "CD3D39FF"; id != expected {
+	if id, expected := key.PublicKey().KeyIdShortString(), "CD3D39FF"; id != expected {
 		t.Errorf("Expected key %s at time %s, but got key %s", expected, time1.Format(timeFormat), id)
 	}
 
@@ -77,14 +77,14 @@ func TestKeyExpiry(t *testing.T) {
 	// selected.
 	time2, _ := time.Parse(timeFormat, "2013-07-09")
 	key, _ = entity.EncryptionKey(time2)
-	if id, expected := key.PublicKey.KeyIdShortString(), "CD3D39FF"; id != expected {
+	if id, expected := key.PublicKey().KeyIdShortString(), "CD3D39FF"; id != expected {
 		t.Errorf("Expected key %s at time %s, but got key %s", expected, time2.Format(timeFormat), id)
 	}
 
 	// Once all the keys have expired, nothing should be returned.
 	time3, _ := time.Parse(timeFormat, "2013-08-01")
 	if key, ok := entity.EncryptionKey(time3); ok {
-		t.Errorf("Expected no key at time %s, but got key %s", time3.Format(timeFormat), key.PublicKey.KeyIdShortString())
+		t.Errorf("Expected no key at time %s, but got key %s", time3.Format(timeFormat), key.PublicKey().KeyIdShortString())
 	}
 }
 
@@ -109,7 +109,7 @@ func TestExpiringPrimaryUIDKey(t *testing.T) {
 	key, found := entity.SigningKey(time1)
 	if !found {
 		t.Errorf("Signing subkey %s not found at time %s", expectedKeyID, time1.Format(timeFormat))
-	} else if observedKeyID := key.PublicKey.KeyIdShortString(); observedKeyID != expectedKeyID {
+	} else if observedKeyID := key.PublicKey().KeyIdShortString(); observedKeyID != expectedKeyID {
 		t.Errorf("Expected key %s at time %s, but got key %s", expectedKeyID, time1.Format(timeFormat), observedKeyID)
 	}
 
@@ -119,7 +119,7 @@ func TestExpiringPrimaryUIDKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	if key, ok := entity.SigningKey(time2); ok {
-		t.Errorf("Expected no key at time %s, but got key %s", time2.Format(timeFormat), key.PublicKey.KeyIdShortString())
+		t.Errorf("Expected no key at time %s, but got key %s", time2.Format(timeFormat), key.PublicKey().KeyIdShortString())
 	}
 }
 
@@ -155,7 +155,7 @@ func TestReturnFirstUnexpiredSigningSubkey(t *testing.T) {
 	if !found {
 		t.Errorf("Signing subkey %s not found at time %s", expected, time1.Format(time.UnixDate))
 	}
-	observed := subkey.PublicKey.KeyIdShortString()
+	observed := subkey.PublicKey().KeyIdShortString()
 	if observed != expected {
 		t.Errorf("Expected key %s at time %s, but got key %s", expected, time1.Format(time.UnixDate), observed)
 	}
@@ -167,7 +167,7 @@ func TestReturnFirstUnexpiredSigningSubkey(t *testing.T) {
 	if !found {
 		t.Errorf("Signing subkey %s not found at time %s", expected, time2.Format(time.UnixDate))
 	}
-	observed = subkey.PublicKey.KeyIdShortString()
+	observed = subkey.PublicKey().KeyIdShortString()
 	if observed != expected {
 		t.Errorf("Expected key %s at time %s, but got key %s", expected, time2.Format(time.UnixDate), observed)
 	}
@@ -249,10 +249,9 @@ func TestSignatureExpiry(t *testing.T) {
 func TestMissingCrossSignature(t *testing.T) {
 	// This public key has a signing subkey, but the subkey does not
 	// contain a cross-signature.
-	keys, err := ReadArmoredKeyRing(bytes.NewBufferString(missingCrossSignatureKey))
-	if len(keys) != 0 {
-		t.Errorf("Accepted key with missing cross signature")
-	}
+	keys, _ := ReadArmoredKeyRing(bytes.NewBufferString(missingCrossSignatureKey))
+	var config *packet.Config
+	_, err := keys[0].Subkeys[0].Verify(config.Now())
 	if err == nil {
 		t.Fatal("Failed to detect error in keyring with missing cross signature")
 	}
@@ -260,7 +259,7 @@ func TestMissingCrossSignature(t *testing.T) {
 	if !ok {
 		t.Fatalf("Unexpected class of error: %T. Wanted StructuralError", err)
 	}
-	const expectedMsg = "signing subkey is missing cross-signature"
+	const expectedMsg = "no valid binding signature found for subkey"
 	if !strings.Contains(string(structural), expectedMsg) {
 		t.Fatalf("Unexpected error: %q. Expected it to contain %q", err, expectedMsg)
 	}
@@ -270,10 +269,9 @@ func TestInvalidCrossSignature(t *testing.T) {
 	// This public key has a signing subkey, and the subkey has an
 	// embedded cross-signature. However, the cross-signature does
 	// not correctly validate over the primary and subkey.
-	keys, err := ReadArmoredKeyRing(bytes.NewBufferString(invalidCrossSignatureKey))
-	if len(keys) != 0 {
-		t.Errorf("Accepted key with invalid cross signature")
-	}
+	keys, _ := ReadArmoredKeyRing(bytes.NewBufferString(invalidCrossSignatureKey))
+	var config *packet.Config
+	_, err := keys[0].Subkeys[0].Verify(config.Now())
 	if err == nil {
 		t.Fatal("Failed to detect error in keyring with an invalid cross signature")
 	}
@@ -281,7 +279,7 @@ func TestInvalidCrossSignature(t *testing.T) {
 	if !ok {
 		t.Fatalf("Unexpected class of error: %T. Wanted StructuralError", err)
 	}
-	const expectedMsg = "subkey signature invalid"
+	const expectedMsg = "no valid binding signature found for subkey"
 	if !strings.Contains(string(structural), expectedMsg) {
 		t.Fatalf("Unexpected error: %q. Expected it to contain %q", err, expectedMsg)
 	}
@@ -332,11 +330,11 @@ func TestRevokedUserID(t *testing.T) {
 		t.Errorf("missing second identity")
 	}
 
-	if firstIdentity.Revoked(time.Now()) {
+	if firstIdentity.Revoked(nil, time.Now()) {
 		t.Errorf("expected first identity not to be revoked")
 	}
 
-	if !secondIdentity.Revoked(time.Now()) {
+	if !secondIdentity.Revoked(nil, time.Now()) {
 		t.Errorf("expected second identity to be revoked")
 	}
 
@@ -381,11 +379,11 @@ func TestFirstUserIDRevoked(t *testing.T) {
 		t.Errorf("missing second identity")
 	}
 
-	if !firstIdentity.Revoked(time.Now()) {
+	if !firstIdentity.Revoked(nil, time.Now()) {
 		t.Errorf("expected first identity to be revoked")
 	}
 
-	if secondIdentity.Revoked(time.Now()) {
+	if secondIdentity.Revoked(nil, time.Now()) {
 		t.Errorf("expected second identity not to be revoked")
 	}
 
@@ -423,7 +421,7 @@ func TestOnlyUserIDRevoked(t *testing.T) {
 		t.Errorf("missing identity")
 	}
 
-	if !identity.Revoked(time.Now()) {
+	if !identity.Revoked(nil, time.Now()) {
 		t.Errorf("expected identity to be revoked")
 	}
 
@@ -529,20 +527,16 @@ func TestKeyRevocation(t *testing.T) {
 		if len(keys) != 1 {
 			t.Errorf("Expected KeysById to find revoked key %X, but got %d matches", id, len(keys))
 		}
-		keys = kring.KeysByIdUsage(id, 0)
-		if len(keys) != 1 {
-			t.Errorf("Expected KeysByIdUsage to find revoked key %X, but got %d matches", id, len(keys))
-		}
 	}
 
 	signingkey, found := kring[0].SigningKey(time.Now())
 	if found {
-		t.Errorf("Expected SigningKey not to return a signing key for a revoked key, got %X", signingkey.PublicKey.KeyId)
+		t.Errorf("Expected SigningKey not to return a signing key for a revoked key, got %X", signingkey.PublicKey().KeyId)
 	}
 
 	encryptionkey, found := kring[0].EncryptionKey(time.Now())
 	if found {
-		t.Errorf("Expected EncryptionKey not to return an encryption key for a revoked key, got %X", encryptionkey.PublicKey.KeyId)
+		t.Errorf("Expected EncryptionKey not to return an encryption key for a revoked key, got %X", encryptionkey.PublicKey().KeyId)
 	}
 }
 
@@ -568,7 +562,7 @@ func TestKeyWithRevokedSubKey(t *testing.T) {
 	// For example, the current key has the following layout:
 	//    PUBKEY UID SELFSIG SUBKEY REV SELFSIG
 	// The last SELFSIG would be added to the UID's signatures. This is wrong.
-	if numSigs, numExpected := len(identity.Signatures), 1; numSigs != numExpected {
+	if numSigs, numExpected := len(identity.SelfCertifications), 1; numSigs != numExpected {
 		t.Fatalf("got %d signatures, expected %d", numSigs, numExpected)
 	}
 
@@ -577,8 +571,8 @@ func TestKeyWithRevokedSubKey(t *testing.T) {
 	}
 
 	subKey := keys[0].Subkeys[0]
-	if subKey.Sig == nil {
-		t.Fatalf("subkey signature is nil")
+	if len(subKey.Bindings) == 0 {
+		t.Fatalf("no binding subkey signature")
 	}
 
 }
@@ -607,13 +601,9 @@ func TestSubkeyRevocation(t *testing.T) {
 		if len(keys) != 1 {
 			t.Errorf("Expected KeysById to find key %X, but got %d matches", id, len(keys))
 		}
-		keys = kring.KeysByIdUsage(id, 0)
-		if len(keys) != 1 {
-			t.Errorf("Expected KeysByIdUsage to find key %X, but got %d matches", id, len(keys))
-		}
 		if id == encryptionKey {
 			key, found := kring[0].EncryptionKey(time.Now())
-			if !found || key.PublicKey.KeyId != id {
+			if !found || key.PublicKey().KeyId != id {
 				t.Errorf("Expected EncryptionKey to find key %X", id)
 			}
 		} else {
@@ -629,14 +619,9 @@ func TestSubkeyRevocation(t *testing.T) {
 		t.Errorf("Expected KeysById to find key %X, but got %d matches", revokedKey, len(keys))
 	}
 
-	keys = kring.KeysByIdUsage(revokedKey, 0)
-	if len(keys) != 1 {
-		t.Errorf("Expected KeysByIdUsage to find key %X, but got %d matches", revokedKey, len(keys))
-	}
-
 	signingkey, found := kring[0].SigningKeyById(time.Now(), revokedKey)
 	if found {
-		t.Errorf("Expected SigningKeyById not to return an encryption key for a revoked key, got %X", signingkey.PublicKey.KeyId)
+		t.Errorf("Expected SigningKeyById not to return an encryption key for a revoked key, got %X", signingkey.PublicKey().KeyId)
 	}
 }
 
@@ -678,14 +663,18 @@ func TestKeyWithSubKeyAndBadSelfSigOrder(t *testing.T) {
 	}
 
 	subKey := key.Subkeys[0]
-
-	if lifetime := subKey.Sig.KeyLifetimeSecs; lifetime != nil {
+	var zeroTime time.Time
+	selfSig, err := subKey.LatestValidBindingSignature(zeroTime)
+	if err != nil {
+		t.Fatal("expected a self signature to be found")
+	}
+	if lifetime := selfSig.KeyLifetimeSecs; lifetime != nil {
 		t.Errorf("The signature has a key lifetime (%d), but it should be nil", *lifetime)
 	}
 
 }
 
-func TestKeyUsage(t *testing.T) {
+/*func TestKeyUsage(t *testing.T) {
 	kring, err := ReadKeyRing(readerFromHex(subkeyUsageHex))
 	if err != nil {
 		t.Fatal(err)
@@ -744,7 +733,7 @@ func TestKeyUsage(t *testing.T) {
 			t.Errorf("Unexpected match for signing key id %X", id)
 		}
 	}
-}
+}*/
 
 func TestIdVerification(t *testing.T) {
 	kring, err := ReadKeyRing(readerFromHex(testKeys1And2PrivateHex))
@@ -768,24 +757,24 @@ func TestIdVerification(t *testing.T) {
 	}
 
 	checked := false
-	for _, sig := range ident.Signatures {
-		if sig.IssuerKeyId == nil || *sig.IssuerKeyId != kring[1].PrimaryKey.KeyId {
+	for _, sig := range ident.OtherCertifications {
+		if sig.Packet.IssuerKeyId == nil || *sig.Packet.IssuerKeyId != kring[1].PrimaryKey.KeyId {
 			continue
 		}
 
-		if err := kring[1].PrimaryKey.VerifyUserIdSignature(signedIdentity, kring[0].PrimaryKey, sig); err != nil {
+		if err := kring[1].PrimaryKey.VerifyUserIdSignature(signedIdentity, kring[0].PrimaryKey, sig.Packet); err != nil {
 			t.Fatalf("error verifying new identity signature: %s", err)
 		}
 
-		if sig.SignerUserId == nil || *sig.SignerUserId != signerIdentity {
+		if sig.Packet.SignerUserId == nil || *sig.Packet.SignerUserId != signerIdentity {
 			t.Fatalf("wrong or nil signer identity")
 		}
 
-		if sig.SigExpired(time.Now()) {
+		if sig.Packet.SigExpired(time.Now()) {
 			t.Fatalf("signature is expired")
 		}
 
-		if !sig.SigExpired(time.Now().Add(129 * time.Second)) {
+		if !sig.Packet.SigExpired(time.Now().Add(129 * time.Second)) {
 			t.Fatalf("signature has invalid expiration")
 		}
 
@@ -802,6 +791,7 @@ func TestNewEntityWithDefaultHash(t *testing.T) {
 	for _, hash := range hashes {
 		c := &packet.Config{
 			DefaultHash: hash,
+			Algorithm:   packet.PubKeyAlgoEdDSA,
 		}
 		entity, err := NewEntity("Golang Gopher", "Test Key", "no-reply@golang.com", c)
 		if hash == crypto.SHA1 {
@@ -816,7 +806,12 @@ func TestNewEntityWithDefaultHash(t *testing.T) {
 		}
 
 		for _, identity := range entity.Identities {
-			prefs := identity.SelfSignature.PreferredHash
+			var zeroTime time.Time
+			selfSig, err := identity.LatestValidSelfCertification(zeroTime)
+			if err != nil {
+				t.Fatal("expected a self signature to be found ")
+			}
+			prefs := selfSig.PreferredHash
 			if len(prefs) == 0 {
 				t.Fatal("didn't find a preferred hash list in self signature")
 			}
@@ -835,7 +830,12 @@ func TestNewEntityNilConfigPreferredHash(t *testing.T) {
 	}
 
 	for _, identity := range entity.Identities {
-		prefs := identity.SelfSignature.PreferredHash
+		var zeroTime time.Time
+		selfSig, err := identity.LatestValidSelfCertification(zeroTime)
+		if err != nil {
+			t.Fatal("expected a self signature to be found ")
+		}
+		prefs := selfSig.PreferredHash
 		if len(prefs) != 1 {
 			t.Fatal("expected preferred hashes list to be [SHA256]")
 		}
@@ -871,7 +871,12 @@ func TestNewEntityWithDefaultCipher(t *testing.T) {
 		}
 
 		for _, identity := range entity.Identities {
-			prefs := identity.SelfSignature.PreferredSymmetric
+			var zeroTime time.Time
+			selfSig, err := identity.LatestValidSelfCertification(zeroTime)
+			if err != nil {
+				t.Fatal("expected a self signature to be found ")
+			}
+			prefs := selfSig.PreferredSymmetric
 			if len(prefs) == 0 {
 				t.Fatal("didn't find a preferred cipher list")
 			}
@@ -889,7 +894,12 @@ func TestNewEntityNilConfigPreferredSymmetric(t *testing.T) {
 	}
 
 	for _, identity := range entity.Identities {
-		prefs := identity.SelfSignature.PreferredSymmetric
+		var zeroTime time.Time
+		selfSig, err := identity.LatestValidSelfCertification(zeroTime)
+		if err != nil {
+			t.Fatal("expected a self signature to be found ")
+		}
+		prefs := selfSig.PreferredSymmetric
 		if len(prefs) != 1 || prefs[0] != algorithm.AES128.Id() {
 			t.Fatal("expected preferred ciphers list to be [AES128]")
 		}
@@ -909,20 +919,25 @@ func TestNewEntityWithDefaultAead(t *testing.T) {
 		}
 
 		for _, identity := range entity.Identities {
-			if len(identity.SelfSignature.PreferredCipherSuites) == 0 {
+			var zeroTime time.Time
+			selfSig, err := identity.LatestValidSelfCertification(zeroTime)
+			if err != nil {
+				t.Fatal("expected a self signature to be found ")
+			}
+			if len(selfSig.PreferredCipherSuites) == 0 {
 				t.Fatal("didn't find a preferred mode in self signature")
 			}
-			cipher := identity.SelfSignature.PreferredCipherSuites[0][0]
+			cipher := selfSig.PreferredCipherSuites[0][0]
 			if cipher != uint8(cfg.Cipher()) {
 				t.Fatalf("Expected preferred cipher to be %d, got %d",
 					uint8(cfg.Cipher()),
-					identity.SelfSignature.PreferredCipherSuites[0][0])
+					selfSig.PreferredCipherSuites[0][0])
 			}
-			mode := identity.SelfSignature.PreferredCipherSuites[0][1]
+			mode := selfSig.PreferredCipherSuites[0][1]
 			if mode != uint8(cfg.AEAD().DefaultMode) {
 				t.Fatalf("Expected preferred mode to be %d, got %d",
 					uint8(cfg.AEAD().DefaultMode),
-					identity.SelfSignature.PreferredCipherSuites[0][1])
+					selfSig.PreferredCipherSuites[0][1])
 			}
 		}
 	}
@@ -991,11 +1006,11 @@ func assertNotationPackets(t *testing.T, keys EntityList) {
 
 	identity := keys[0].Identities["Test <test@example.com>"]
 
-	if numSigs, numExpected := len(identity.Signatures), 1; numSigs != numExpected {
+	if numSigs, numExpected := len(identity.SelfCertifications), 1; numSigs != numExpected {
 		t.Fatalf("got %d signatures, expected %d", numSigs, numExpected)
 	}
 
-	notations := identity.Signatures[0].Notations
+	notations := identity.SelfCertifications[0].Packet.Notations
 	if numNotations, numExpected := len(notations), 2; numNotations != numExpected {
 		t.Fatalf("got %d Notation Data subpackets, expected %d", numNotations, numExpected)
 	}
@@ -1071,7 +1086,12 @@ func TestAddUserId(t *testing.T) {
 	}
 
 	for _, sk := range entity.Identities {
-		err = entity.PrimaryKey.VerifyUserIdSignature(sk.UserId.Id, entity.PrimaryKey, sk.SelfSignature)
+		var zeroTime time.Time
+		selfSig, err := sk.LatestValidSelfCertification(zeroTime)
+		if err != nil {
+			t.Fatal("expected a self signature to be found")
+		}
+		err = entity.PrimaryKey.VerifyUserIdSignature(sk.UserId.Id, entity.PrimaryKey, selfSig)
 		if err != nil {
 			t.Errorf("Invalid subkey signature: %v", err)
 		}
@@ -1106,7 +1126,12 @@ func TestAddSubkey(t *testing.T) {
 	}
 
 	for _, sk := range entity.Subkeys {
-		err = entity.PrimaryKey.VerifyKeySignature(sk.PublicKey, sk.Sig)
+		var zeroTime time.Time
+		selfSig, err := sk.LatestValidBindingSignature(zeroTime)
+		if err != nil {
+			t.Fatal("expected a self signature to be found")
+		}
+		err = entity.PrimaryKey.VerifyKeySignature(sk.PublicKey, selfSig)
 		if err != nil {
 			t.Errorf("Invalid subkey signature: %v", err)
 		}
@@ -1150,7 +1175,12 @@ func TestAddSubkeySerialized(t *testing.T) {
 	}
 
 	for _, sk := range entity.Subkeys {
-		err = entity.PrimaryKey.VerifyKeySignature(sk.PublicKey, sk.Sig)
+		var zeroTime time.Time
+		selfSig, err := sk.LatestValidBindingSignature(zeroTime)
+		if err != nil {
+			t.Fatal("expected a self signature to be found")
+		}
+		err = entity.PrimaryKey.VerifyKeySignature(sk.PublicKey, selfSig)
 		if err != nil {
 			t.Errorf("Invalid subkey signature: %v", err)
 		}
@@ -1191,26 +1221,35 @@ func TestAddSubkeyWithConfig(t *testing.T) {
 			entity.Subkeys[2].PublicKey.PubKeyAlgo)
 	}
 
-	if entity.Subkeys[1].Sig.Hash != c.DefaultHash {
+	var zeroTime time.Time
+	selfSig1, err := entity.Subkeys[1].LatestValidBindingSignature(zeroTime)
+	if err != nil {
+		t.Fatal("expected a self signature to be found")
+	}
+	if selfSig1.Hash != c.DefaultHash {
 		t.Fatalf("Expected subkey hash method: %v, got: %v", c.DefaultHash,
-			entity.Subkeys[1].Sig.Hash)
+			selfSig1.Hash)
+	}
+	if selfSig1.EmbeddedSignature.Hash != c.DefaultHash {
+		t.Fatalf("Expected subkey hash method: %v, got: %v", c.DefaultHash,
+			selfSig1.EmbeddedSignature.Hash)
+	}
+	err = entity.PrimaryKey.VerifyKeySignature(entity.Subkeys[1].PublicKey, selfSig1)
+	if err != nil {
+		t.Errorf("Invalid subkey signature: %v", err)
 	}
 
-	if entity.Subkeys[1].Sig.EmbeddedSignature.Hash != c.DefaultHash {
-		t.Fatalf("Expected subkey hash method: %v, got: %v", c.DefaultHash,
-			entity.Subkeys[1].Sig.EmbeddedSignature.Hash)
+	selfSig2, err := entity.Subkeys[2].LatestValidBindingSignature(zeroTime)
+	if err != nil {
+		t.Fatal("expected a self signature to be found")
 	}
-
-	if entity.Subkeys[2].Sig.Hash != c.DefaultHash {
+	if selfSig2.Hash != c.DefaultHash {
 		t.Fatalf("Expected subkey hash method: %v, got: %v", c.DefaultHash,
-			entity.Subkeys[2].Sig.Hash)
+			selfSig2.Hash)
 	}
-
-	for _, sk := range entity.Subkeys {
-		err = entity.PrimaryKey.VerifyKeySignature(sk.PublicKey, sk.Sig)
-		if err != nil {
-			t.Errorf("Invalid subkey signature: %v", err)
-		}
+	err = entity.PrimaryKey.VerifyKeySignature(entity.Subkeys[2].PublicKey, selfSig2)
+	if err != nil {
+		t.Errorf("Invalid subkey signature: %v", err)
 	}
 
 	serializedEntity := bytes.NewBuffer(nil)
@@ -1254,6 +1293,11 @@ func TestAddSubkeyWithConfigSerialized(t *testing.T) {
 		t.Fatalf("Expected 3 subkeys, got %d", len(entity.Subkeys))
 	}
 
+	var zeroTime time.Time
+	selfSig1, err := entity.Subkeys[1].LatestValidBindingSignature(zeroTime)
+	if err != nil {
+		t.Fatal("expected a self signature to be found")
+	}
 	if entity.Subkeys[1].PublicKey.PubKeyAlgo != packet.PubKeyAlgoEdDSA {
 		t.Fatalf("Expected subkey algorithm: %v, got: %v", packet.PubKeyAlgoEdDSA,
 			entity.Subkeys[1].PublicKey.PubKeyAlgo)
@@ -1264,26 +1308,31 @@ func TestAddSubkeyWithConfigSerialized(t *testing.T) {
 			entity.Subkeys[2].PublicKey.PubKeyAlgo)
 	}
 
-	if entity.Subkeys[1].Sig.Hash != c.DefaultHash {
+	if selfSig1.Hash != c.DefaultHash {
 		t.Fatalf("Expected subkey hash method: %v, got: %v", c.DefaultHash,
-			entity.Subkeys[1].Sig.Hash)
+			selfSig1.Hash)
 	}
 
-	if entity.Subkeys[1].Sig.EmbeddedSignature.Hash != c.DefaultHash {
+	if selfSig1.EmbeddedSignature.Hash != c.DefaultHash {
 		t.Fatalf("Expected subkey hash method: %v, got: %v", c.DefaultHash,
-			entity.Subkeys[1].Sig.EmbeddedSignature.Hash)
+			selfSig1.EmbeddedSignature.Hash)
 	}
 
-	if entity.Subkeys[2].Sig.Hash != c.DefaultHash {
-		t.Fatalf("Expected subkey hash method: %v, got: %v", c.DefaultHash,
-			entity.Subkeys[2].Sig.Hash)
+	selfSig2, err := entity.Subkeys[2].LatestValidBindingSignature(zeroTime)
+	if err != nil {
+		t.Fatal("expected a self signature to be found")
 	}
-
-	for _, sk := range entity.Subkeys {
-		err = entity.PrimaryKey.VerifyKeySignature(sk.PublicKey, sk.Sig)
-		if err != nil {
-			t.Errorf("Invalid subkey signature: %v", err)
-		}
+	if selfSig2.Hash != c.DefaultHash {
+		t.Fatalf("Expected subkey hash method: %v, got: %v", c.DefaultHash,
+			selfSig2.Hash)
+	}
+	err = entity.PrimaryKey.VerifyKeySignature(entity.Subkeys[1].PublicKey, selfSig1)
+	if err != nil {
+		t.Errorf("Invalid subkey signature: %v", err)
+	}
+	err = entity.PrimaryKey.VerifyKeySignature(entity.Subkeys[2].PublicKey, selfSig2)
+	if err != nil {
+		t.Errorf("Invalid subkey signature: %v", err)
 	}
 }
 
@@ -1293,7 +1342,7 @@ func TestRevokeKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = entity.RevokeKey(packet.NoReason, "Key revocation", nil)
+	err = entity.Revoke(packet.NoReason, "Key revocation", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1303,7 +1352,7 @@ func TestRevokeKey(t *testing.T) {
 	}
 
 	for _, r := range entity.Revocations {
-		err = entity.PrimaryKey.VerifyRevocationSignature(r)
+		err = entity.PrimaryKey.VerifyRevocationSignature(r.Packet)
 		if err != nil {
 			t.Errorf("Invalid revocation: %v", err)
 		}
@@ -1322,7 +1371,7 @@ func TestRevokeKeyWithConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = entity.RevokeKey(packet.NoReason, "Key revocation", c)
+	err = entity.Revoke(packet.NoReason, "Key revocation", c)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1331,13 +1380,13 @@ func TestRevokeKeyWithConfig(t *testing.T) {
 		t.Fatal("Revocation signature missing from entity")
 	}
 
-	if entity.Revocations[0].Hash != c.DefaultHash {
+	if entity.Revocations[0].Packet.Hash != c.DefaultHash {
 		t.Fatalf("Expected signature hash method: %v, got: %v", c.DefaultHash,
-			entity.Revocations[0].Hash)
+			entity.Revocations[0].Packet.Hash)
 	}
 
 	for _, r := range entity.Revocations {
-		err = entity.PrimaryKey.VerifyRevocationSignature(r)
+		err = entity.PrimaryKey.VerifyRevocationSignature(r.Packet)
 		if err != nil {
 			t.Errorf("Invalid revocation: %v", err)
 		}
@@ -1350,27 +1399,26 @@ func TestRevokeSubkey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sk := &entity.Subkeys[0]
-	err = entity.RevokeSubkey(sk, packet.NoReason, "Key revocation", nil)
+	err = entity.Subkeys[0].Revoke(packet.NoReason, "Key revocation", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	if len(entity.Subkeys[0].Revocations) != 1 {
-		t.Fatalf("Expected 1 subkey revocation signature, got %v", len(sk.Revocations))
+		t.Fatalf("Expected 1 subkey revocation signature, got %v", len(entity.Subkeys[0].Revocations))
 	}
 
 	revSig := entity.Subkeys[0].Revocations[0]
 
-	err = entity.PrimaryKey.VerifySubkeyRevocationSignature(revSig, sk.PublicKey)
+	err = entity.PrimaryKey.VerifySubkeyRevocationSignature(revSig.Packet, entity.Subkeys[0].PublicKey)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if revSig.RevocationReason == nil {
+	if revSig.Packet.RevocationReason == nil {
 		t.Fatal("Revocation reason was not set")
 	}
-	if revSig.RevocationReasonText == "" {
+	if revSig.Packet.RevocationReasonText == "" {
 		t.Fatal("Revocation reason text was not set")
 	}
 
@@ -1383,15 +1431,15 @@ func TestRevokeSubkey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if newEntity.Subkeys[0].Revocations[0].RevocationReason == nil {
+	if newEntity.Subkeys[0].Revocations[0].Packet.RevocationReason == nil {
 		t.Fatal("Revocation reason lost after serialization of entity")
 	}
-	if newEntity.Subkeys[0].Revocations[0].RevocationReasonText == "" {
+	if newEntity.Subkeys[0].Revocations[0].Packet.RevocationReasonText == "" {
 		t.Fatal("Revocation reason text lost after serialization of entity")
 	}
 }
 
-func TestRevokeSubkeyWithAnotherEntity(t *testing.T) {
+/*func TestRevokeSubkeyWithAnotherEntity(t *testing.T) {
 	entity, err := NewEntity("Golang Gopher", "Test Key", "no-reply@golang.com", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -1408,7 +1456,7 @@ func TestRevokeSubkeyWithAnotherEntity(t *testing.T) {
 	if err == nil {
 		t.Fatal("Entity was able to revoke a subkey owned by a different entity")
 	}
-}
+}*/
 
 func TestRevokeSubkeyWithInvalidSignature(t *testing.T) {
 	entity, err := NewEntity("Golang Gopher", "Test Key", "no-reply@golang.com", nil)
@@ -1417,9 +1465,9 @@ func TestRevokeSubkeyWithInvalidSignature(t *testing.T) {
 	}
 
 	sk := entity.Subkeys[0]
-	sk.Sig = &packet.Signature{Version: 4}
+	sk.Bindings[0].Packet = &packet.Signature{Version: 4}
 
-	err = entity.RevokeSubkey(&sk, packet.NoReason, "Key revocation", nil)
+	err = sk.Revoke(packet.NoReason, "Key revocation", nil)
 	if err == nil {
 		t.Fatal("Entity was able to revoke a subkey with invalid signature")
 	}
@@ -1436,7 +1484,7 @@ func TestRevokeSubkeyWithConfig(t *testing.T) {
 	}
 
 	sk := entity.Subkeys[0]
-	err = entity.RevokeSubkey(&sk, packet.NoReason, "Key revocation", c)
+	err = sk.Revoke(packet.NoReason, "Key revocation", c)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1445,7 +1493,7 @@ func TestRevokeSubkeyWithConfig(t *testing.T) {
 		t.Fatalf("Expected 1 subkey revocation signature, got %v", len(sk.Revocations))
 	}
 
-	revSig := sk.Revocations[0]
+	revSig := sk.Revocations[0].Packet
 
 	if revSig.Hash != c.DefaultHash {
 		t.Fatalf("Expected signature hash method: %v, got: %v", c.DefaultHash, revSig.Hash)
@@ -1816,17 +1864,16 @@ func checkV4Key(t *testing.T, ent *Entity) {
 	}
 	signatures := ent.Revocations
 	for _, id := range ent.Identities {
-		signatures = append(signatures, id.SelfSignature)
-		signatures = append(signatures, id.Signatures...)
+		signatures = append(signatures, id.SelfCertifications...)
 	}
 	for _, sig := range signatures {
 		if sig == nil {
 			continue
 		}
-		if sig.Version != 4 {
-			t.Errorf("wrong signature version %d", sig.Version)
+		if sig.Packet.Version != 4 {
+			t.Errorf("wrong signature version %d", sig.Packet.Version)
 		}
-		fgptLen := len(sig.IssuerFingerprint)
+		fgptLen := len(sig.Packet.IssuerFingerprint)
 		if fgptLen != 20 {
 			t.Errorf("Wrong fingerprint length in signature: %d", fgptLen)
 		}
@@ -1844,4 +1891,74 @@ mQ00BF00000BCAD0000000000000000000000000000000000000000000000000
 0000000000000000000000000000000000000000000000000000000000000000
 000000000000000000000000000000000000ABE000G0Dn000000000000000000iQ00BB0BAgAGBCG00000`
 	ReadArmoredKeyRing(strings.NewReader(data))
+}
+
+func TestMultiIdentity(t *testing.T) {
+	data := `-----BEGIN PGP PUBLIC KEY BLOCK-----
+
+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
+zaXZE2aAMQ==
+=Ty4h
+-----END PGP PUBLIC KEY BLOCK-----`
+	key, err := ReadArmoredKeyRing(strings.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config *packet.Config
+	sig, _, err := key[0].PrimaryIdentity(config.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !*sig.IsPrimaryId {
+		t.Fatal("Faile")
+	}
 }

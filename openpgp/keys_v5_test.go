@@ -151,17 +151,16 @@ func checkV5Key(t *testing.T, ent *Entity) {
 	}
 	signatures := ent.Revocations
 	for _, id := range ent.Identities {
-		signatures = append(signatures, id.SelfSignature)
-		signatures = append(signatures, id.Signatures...)
+		signatures = append(signatures, id.SelfCertifications...)
 	}
 	for _, sig := range signatures {
 		if sig == nil {
 			continue
 		}
-		if sig.Version != 5 {
-			t.Errorf("wrong signature version %d", sig.Version)
+		if sig.Packet.Version != 5 {
+			t.Errorf("wrong signature version %d", sig.Packet.Version)
 		}
-		fgptLen := len(sig.IssuerFingerprint)
+		fgptLen := len(sig.Packet.IssuerFingerprint)
 		if fgptLen != 32 {
 			t.Errorf("Wrong fingerprint length in signature: %d", fgptLen)
 		}

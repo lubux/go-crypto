@@ -5,6 +5,7 @@ import (
 	"crypto"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ProtonMail/go-crypto/v2/openpgp/packet"
 )
@@ -122,17 +123,16 @@ func checkV6Key(t *testing.T, ent *Entity) {
 	}
 	signatures := ent.Revocations
 	for _, id := range ent.Identities {
-		signatures = append(signatures, id.SelfSignature)
-		signatures = append(signatures, id.Signatures...)
+		signatures = append(signatures, id.SelfCertifications...)
 	}
 	for _, sig := range signatures {
-		if sig == nil {
+		if sig.Packet == nil {
 			continue
 		}
-		if sig.Version != 6 {
-			t.Errorf("wrong signature version %d", sig.Version)
+		if sig.Packet.Version != 6 {
+			t.Errorf("wrong signature version %d", sig.Packet.Version)
 		}
-		fgptLen := len(sig.IssuerFingerprint)
+		fgptLen := len(sig.Packet.IssuerFingerprint)
 		if fgptLen != 32 {
 			t.Errorf("Wrong fingerprint length in signature: %d", fgptLen)
 		}
@@ -177,7 +177,7 @@ func checkSerializeReadv6(t *testing.T, e *Entity) {
 	checkV6Key(t, el[0])
 }
 
-func TestNewEntityWithDefaultHashv6(t *testing.T) {
+func TestNewEntityWithDefaultHashV6(t *testing.T) {
 	for _, hash := range hashes[:5] {
 		c := &packet.Config{
 			V6Keys:      true,
@@ -190,7 +190,12 @@ func TestNewEntityWithDefaultHashv6(t *testing.T) {
 			}
 			continue
 		}
-		prefs := entity.SelfSignature.PreferredHash
+		var zeroTime time.Time
+		selfSig, err := entity.PrimarySelfSignature(zeroTime)
+		if err != nil {
+			t.Fatal("self-signature should be found")
+		}
+		prefs := selfSig.PreferredHash
 		if prefs == nil {
 			t.Fatal(err)
 		}

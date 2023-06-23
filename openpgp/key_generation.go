@@ -67,11 +67,11 @@ func newEntity(uid *userIdData, config *packet.Config) (*Entity, error) {
 	}
 
 	e := &Entity{
-		PrimaryKey: &primary.PublicKey,
-		PrivateKey: primary,
-		Identities: make(map[string]*Identity),
-		Subkeys:    []Subkey{},
-		Signatures: []*packet.Signature{},
+		PrimaryKey:       &primary.PublicKey,
+		PrivateKey:       primary,
+		Identities:       make(map[string]*Identity),
+		Subkeys:          []Subkey{},
+		DirectSignatures: []*packet.VerifiableSig{},
 	}
 
 	if config.V6() {
@@ -112,8 +112,7 @@ func (t *Entity) AddDirectKeySignature(config *packet.Config) error {
 	if err != nil {
 		return err
 	}
-	t.Signatures = append(t.Signatures, selfSignature)
-	t.SelfSignature = selfSignature
+	t.DirectSignatures = append(t.DirectSignatures, packet.NewVerifiableSig(selfSignature))
 	return nil
 }
 
@@ -195,10 +194,10 @@ func (t *Entity) addUserId(userIdData userIdData, config *packet.Config, creatio
 		return err
 	}
 	t.Identities[uid.Id] = &Identity{
-		Name:          uid.Id,
-		UserId:        uid,
-		SelfSignature: selfSignature,
-		Signatures:    []*packet.Signature{selfSignature},
+		Primary:            t,
+		Name:               uid.Id,
+		UserId:             uid,
+		SelfCertifications: []*packet.VerifiableSig{packet.NewVerifiableSig(selfSignature)},
 	}
 	return nil
 }
@@ -224,23 +223,26 @@ func (e *Entity) AddSigningSubkey(config *packet.Config) error {
 		PublicKey:  &sub.PublicKey,
 		PrivateKey: sub,
 	}
-	subkey.Sig = createSignaturePacket(e.PrimaryKey, packet.SigTypeSubkeyBinding, config)
-	subkey.Sig.CreationTime = creationTime
-	subkey.Sig.KeyLifetimeSecs = &keyLifetimeSecs
-	subkey.Sig.FlagsValid = true
-	subkey.Sig.FlagSign = true
-	subkey.Sig.EmbeddedSignature = createSignaturePacket(subkey.PublicKey, packet.SigTypePrimaryKeyBinding, config)
-	subkey.Sig.EmbeddedSignature.CreationTime = creationTime
+	sig := createSignaturePacket(e.PrimaryKey, packet.SigTypeSubkeyBinding, config)
+	sig.CreationTime = creationTime
+	sig.KeyLifetimeSecs = &keyLifetimeSecs
+	sig.FlagsValid = true
+	sig.FlagSign = true
+	sig.EmbeddedSignature = createSignaturePacket(subkey.PublicKey, packet.SigTypePrimaryKeyBinding, config)
+	sig.EmbeddedSignature.CreationTime = creationTime
 
-	err = subkey.Sig.EmbeddedSignature.CrossSignKey(subkey.PublicKey, e.PrimaryKey, subkey.PrivateKey, config)
+	err = sig.EmbeddedSignature.CrossSignKey(subkey.PublicKey, e.PrimaryKey, subkey.PrivateKey, config)
 	if err != nil {
 		return err
 	}
 
-	err = subkey.Sig.SignKey(subkey.PublicKey, e.PrivateKey, config)
+	err = sig.SignKey(subkey.PublicKey, e.PrivateKey, config)
 	if err != nil {
 		return err
 	}
+
+	subkey.Bindings = []*packet.VerifiableSig{packet.NewVerifiableSig(sig)}
+	subkey.Primary = e
 
 	e.Subkeys = append(e.Subkeys, subkey)
 	return nil
@@ -270,18 +272,21 @@ func (e *Entity) addEncryptionSubkey(config *packet.Config, creationTime time.Ti
 		PublicKey:  &sub.PublicKey,
 		PrivateKey: sub,
 	}
-	subkey.Sig = createSignaturePacket(e.PrimaryKey, packet.SigTypeSubkeyBinding, config)
-	subkey.Sig.CreationTime = creationTime
-	subkey.Sig.KeyLifetimeSecs = &keyLifetimeSecs
-	subkey.Sig.FlagsValid = true
-	subkey.Sig.FlagEncryptStorage = true
-	subkey.Sig.FlagEncryptCommunications = true
+	sig := createSignaturePacket(e.PrimaryKey, packet.SigTypeSubkeyBinding, config)
+	sig.CreationTime = creationTime
+	sig.KeyLifetimeSecs = &keyLifetimeSecs
+	sig.FlagsValid = true
+	sig.FlagEncryptStorage = true
+	sig.FlagEncryptCommunications = true
 
-	err = subkey.Sig.SignKey(subkey.PublicKey, e.PrivateKey, config)
+	err = sig.SignKey(subkey.PublicKey, e.PrivateKey, config)
 	if err != nil {
 		return err
 	}
 
+	subkey.Bindings = []*packet.VerifiableSig{packet.NewVerifiableSig(sig)}
+
+	subkey.Primary = e
 	e.Subkeys = append(e.Subkeys, subkey)
 	return nil
 }

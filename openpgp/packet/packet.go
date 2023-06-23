@@ -552,7 +552,16 @@ const (
 	KeySuperseded  ReasonForRevocation = 1
 	KeyCompromised ReasonForRevocation = 2
 	KeyRetired     ReasonForRevocation = 3
+	UserIDNotValid ReasonForRevocation = 32
+	Unknown        ReasonForRevocation = 200
 )
+
+func NewReasonForRevocation(value byte) ReasonForRevocation {
+	if value < 4 || value == 32 {
+		return ReasonForRevocation(value)
+	}
+	return Unknown
+}
 
 // Curve is a mapping to supported ECC curves for key generation.
 // See https://www.ietf.org/archive/id/draft-ietf-openpgp-crypto-refresh-06.html#name-curve-specific-wire-formats

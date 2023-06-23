@@ -58,6 +58,14 @@ func (ke keyExpiredError) Error() string {
 	return "openpgp: key expired"
 }
 
+var ErrSignatureOlderThanKey error = signatureOlderThanKeyError(0)
+
+type signatureOlderThanKeyError int
+
+func (ske signatureOlderThanKeyError) Error() string {
+	return "openpgp: signature is older than the key"
+}
+
 var ErrKeyExpired error = keyExpiredError(0)
 
 type keyIncorrectError int

@@ -120,6 +120,22 @@ type Signature struct {
 	outSubpackets []outputSubpacket
 }
 
+// VerifiableSig internally keeps state if the
+// the signature has been verified before.
+type VerifiableSig struct {
+	Verified bool
+	Valid    bool
+	Packet   *Signature
+}
+
+func NewVerifiableSig(signature *Signature) *VerifiableSig {
+	return &VerifiableSig{
+		Verified: false,
+		Valid:    false,
+		Packet:   signature,
+	}
+}
+
 func (sig *Signature) Salt() []byte {
 	if sig == nil {
 		return nil
@@ -526,7 +542,7 @@ func parseSignatureSubpacket(sig *Signature, subpacket []byte, isHashed bool) (r
 			return
 		}
 		sig.RevocationReason = new(ReasonForRevocation)
-		*sig.RevocationReason = ReasonForRevocation(subpacket[0])
+		*sig.RevocationReason = NewReasonForRevocation(subpacket[0])
 		sig.RevocationReasonText = string(subpacket[1:])
 	case featuresSubpacket:
 		// Features subpacket, section 5.2.3.24 specifies a very general

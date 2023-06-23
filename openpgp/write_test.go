@@ -756,7 +756,7 @@ func TestEncryption(t *testing.T) {
 		testTime, _ := time.Parse("2006-01-02", "2013-07-01")
 		if test.isSigned {
 			signKey, _ := kring[0].SigningKey(testTime)
-			expectedKeyId := signKey.PublicKey.KeyId
+			expectedKeyId := signKey.PublicKey().KeyId
 			if len(md.SignatureCandidates) < 1 {
 				t.Error("no candidate signature found")
 			}
@@ -775,7 +775,7 @@ func TestEncryption(t *testing.T) {
 		}
 
 		encryptKey, _ := kring[0].EncryptionKey(testTime)
-		expectedKeyId := encryptKey.PublicKey.KeyId
+		expectedKeyId := encryptKey.PublicKey().KeyId
 		if len(md.EncryptedToKeyIds) != 1 || md.EncryptedToKeyIds[0] != expectedKeyId {
 			t.Errorf("#%d: expected message to be encrypted to %v, but got %#v", i, expectedKeyId, md.EncryptedToKeyIds)
 		}
@@ -863,7 +863,7 @@ func TestSigning(t *testing.T) {
 
 		testTime, _ := time.Parse("2006-01-02", "2022-12-01")
 		signKey, _ := kring[0].SigningKey(testTime)
-		expectedKeyId := signKey.PublicKey.KeyId
+		expectedKeyId := signKey.PublicKey().KeyId
 		if len(md.SignatureCandidates) < 1 {
 			t.Error("expected a signature candidate")
 		}
@@ -926,12 +926,7 @@ ParsePackets:
 			default:
 				continue
 			}
-			var keys []Key
-			if p.KeyId == 0 {
-				keys = keyring.DecryptionKeys()
-			} else {
-				keys = keyring.KeysById(p.KeyId)
-			}
+			keys := keyring.KeysById(p.KeyId)
 			for _, k := range keys {
 				pubKeys = append(pubKeys, keyEnvelopePair{k, p})
 			}
@@ -957,12 +952,12 @@ FindKey:
 		candidateFingerprints := make(map[string]bool)
 
 		for _, pk := range pubKeys {
-			if pk.key.PrivateKey == nil {
+			if pk.key.PrivateKey() == nil {
 				continue
 			}
-			if !pk.key.PrivateKey.Encrypted {
+			if !pk.key.PrivateKey().Encrypted {
 				if len(pk.encryptedKey.Key) == 0 {
-					errDec := pk.encryptedKey.Decrypt(pk.key.PrivateKey, config)
+					errDec := pk.encryptedKey.Decrypt(pk.key.PrivateKey(), config)
 					if errDec != nil {
 						continue
 					}
@@ -976,7 +971,7 @@ FindKey:
 					break FindKey
 				}
 			} else {
-				fpr := string(pk.key.PublicKey.Fingerprint[:])
+				fpr := string(pk.key.PublicKey().Fingerprint[:])
 				if v := candidateFingerprints[fpr]; v {
 					continue
 				}

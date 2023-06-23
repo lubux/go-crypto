@@ -102,7 +102,7 @@ func decryptionTest(t *testing.T, vector testVector, sk openpgp.EntityList) {
 		return
 	}
 	prompt := func(keys []openpgp.Key, symmetric bool) ([]byte, error) {
-		err := keys[0].PrivateKey.Decrypt([]byte(vector.Password))
+		err := keys[0].PrivateKey().Decrypt([]byte(vector.Password))
 		if err != nil {
 			t.Errorf("prompt: error decrypting key: %s", err)
 			return nil, err
@@ -147,9 +147,10 @@ func decryptionTest(t *testing.T, vector testVector, sk openpgp.EntityList) {
 func encDecTest(t *testing.T, from testVector, testVectors []testVector) {
 	skFrom := readArmoredSk(t, from.PrivateKey, from.Password)
 	// Decrypt private key if necessary
-	err := skFrom.DecryptionKeys()[0].PrivateKey.Decrypt([]byte(from.Password))
-	if err != nil {
-		t.Error(err)
+	for _, entity := range skFrom {
+		if err := entity.DecryptPrivateKeys([]byte(from.Password)); err != nil {
+			t.Error(err)
+		}
 	}
 	pkFrom := readArmoredPk(t, from.PublicKey)
 	for _, to := range testVectors {
@@ -185,7 +186,7 @@ func encDecTest(t *testing.T, from testVector, testVectors []testVector) {
 
 			// Decrypt recipient key
 			prompt := func(keys []openpgp.Key, symm bool) ([]byte, error) {
-				err := keys[0].PrivateKey.Decrypt([]byte(to.Password))
+				err := keys[0].PrivateKey().Decrypt([]byte(to.Password))
 				if err != nil {
 					t.Errorf("Prompt: error decrypting key: %s", err)
 					return nil, err
@@ -205,17 +206,17 @@ func encDecTest(t *testing.T, from testVector, testVectors []testVector) {
 				t.Fatal("The message should be encrypted")
 			}
 			signKey, _ := signer.SigningKey(time.Now())
-			expectedKeyID := signKey.PublicKey.KeyId
-			expectedFingerprint := signKey.PublicKey.Fingerprint
+			expectedKeyID := signKey.PublicKey().KeyId
+			expectedFingerprint := signKey.PublicKey().Fingerprint
 			if len(md.SignatureCandidates) != 1 {
 				t.Fatal("No signature candidate found")
 			}
-			if signKey.PublicKey.Version != 6 && md.SignatureCandidates[0].IssuerKeyId != expectedKeyID {
+			if signKey.PublicKey().Version != 6 && md.SignatureCandidates[0].IssuerKeyId != expectedKeyID {
 				t.Fatalf(
 					"Message signed by wrong key id, got: %v, want: %v",
 					*md.SignatureCandidates[0].SignedBy, expectedKeyID)
 			}
-			if signKey.PublicKey.Version == 6 && !bytes.Equal(md.SignatureCandidates[0].IssuerFingerprint, expectedFingerprint) {
+			if signKey.PublicKey().Version == 6 && !bytes.Equal(md.SignatureCandidates[0].IssuerFingerprint, expectedFingerprint) {
 				t.Fatalf(
 					"Message signed by wrong key id, got: %x, want: %x",
 					md.SignatureCandidates[0].IssuerFingerprint, expectedFingerprint)
@@ -232,7 +233,7 @@ func encDecTest(t *testing.T, from testVector, testVectors []testVector) {
 				t.Errorf("not verified despite all data read")
 			}
 			encryptKey, _ := pkTo[0].EncryptionKey(time.Now())
-			expectedEncKeyID := encryptKey.PublicKey.KeyId
+			expectedEncKeyID := encryptKey.PublicKey().KeyId
 			if len(md.EncryptedToKeyIds) != 1 ||
 				md.EncryptedToKeyIds[0] != expectedEncKeyID {
 				t.Errorf("Expected message to be encrypted to %v, but got %#v",

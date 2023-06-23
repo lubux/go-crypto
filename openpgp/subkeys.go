@@ -8,28 +8,14 @@ import (
 	"github.com/ProtonMail/go-crypto/v2/openpgp/packet"
 )
 
-type VerifiableSig struct {
-	Verified  bool
-	Valid     bool
-	Signature *packet.Signature
-}
-
-func NewVerifiableSig(signature *packet.Signature) *VerifiableSig {
-	return &VerifiableSig{
-		Verified:  false,
-		Valid:     false,
-		Signature: signature,
-	}
-}
-
 // A Subkey is an additional public key in an Entity. Subkeys can be used for
 // encryption.
 type Subkey struct {
 	Primary     *Entity
 	PublicKey   *packet.PublicKey
 	PrivateKey  *packet.PrivateKey
-	Bindings    []*VerifiableSig
-	Revocations []*VerifiableSig
+	Bindings    []*packet.VerifiableSig
+	Revocations []*packet.VerifiableSig
 }
 
 func readSubkey(primary *Entity, packets *packet.Reader, pub *packet.PublicKey, priv *packet.PrivateKey) error {
@@ -58,26 +44,32 @@ func readSubkey(primary *Entity, packets *packet.Reader, pub *packet.PublicKey, 
 		}
 		switch sig.SigType {
 		case packet.SigTypeSubkeyRevocation:
-			subKey.Revocations = append(subKey.Revocations, NewVerifiableSig(sig))
+			subKey.Revocations = append(subKey.Revocations, packet.NewVerifiableSig(sig))
 		case packet.SigTypeSubkeyBinding:
-			subKey.Bindings = append(subKey.Revocations, NewVerifiableSig(sig))
+			subKey.Bindings = append(subKey.Bindings, packet.NewVerifiableSig(sig))
 		}
 	}
 	primary.Subkeys = append(primary.Subkeys, subKey)
 	return nil
 }
 
-func (s *Subkey) Serialize(w io.Writer) error {
-	if err := s.PrivateKey.Serialize(w); err != nil {
-		return err
+func (s *Subkey) Serialize(w io.Writer, includeSecrets bool) error {
+	if includeSecrets {
+		if err := s.PrivateKey.Serialize(w); err != nil {
+			return err
+		}
+	} else {
+		if err := s.PublicKey.Serialize(w); err != nil {
+			return err
+		}
 	}
 	for _, revocation := range s.Revocations {
-		if err := revocation.Signature.Serialize(w); err != nil {
+		if err := revocation.Packet.Serialize(w); err != nil {
 			return err
 		}
 	}
 	for _, bindingSig := range s.Bindings {
-		if err := bindingSig.Signature.Serialize(w); err != nil {
+		if err := bindingSig.Packet.Serialize(w); err != nil {
 			return err
 		}
 	}
@@ -85,8 +77,7 @@ func (s *Subkey) Serialize(w io.Writer) error {
 }
 
 func (s *Subkey) ReSign(config *packet.Config) error {
-	var timeZero time.Time
-	selectedSig, err := s.getLatestValidBindingSignature(timeZero)
+	selectedSig, err := s.LatestValidBindingSignature(time.Time{})
 	if err != nil {
 		return err
 	}
@@ -104,66 +95,109 @@ func (s *Subkey) ReSign(config *packet.Config) error {
 	return nil
 }
 
-func (s *Subkey) Verify(date time.Time) error {
-	if s.Revoked(date) {
-		return errors.ErrKeyRevoked
-	}
-	expired, err := s.Expired(date)
+// Verify checks if the subkey is valid by checking:
+// - that the key is not revoked
+// - that there is valid non-expired binding self-signature
+// - that the subkey is not expired
+// If date is zero (i.e., date.IsZero() == true) the time checks are not performed.
+func (s *Subkey) Verify(date time.Time) (selfSig *packet.Signature, err error) {
+	selfSig, err = s.LatestValidBindingSignature(date)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if expired {
-		return errors.ErrKeyExpired
+	if s.Revoked(selfSig, date) {
+		return nil, errors.ErrKeyRevoked
 	}
-	return nil
+	if !date.IsZero() && s.Expired(selfSig, date) {
+		return nil, errors.ErrKeyExpired
+	}
+	return
 }
 
-func (s *Subkey) Expired(date time.Time) (expired bool, err error) {
-	selectedSig, err := s.getLatestValidBindingSignature(date)
-	if err != nil {
-		return
-	}
-	return !s.PublicKey.KeyExpired(selectedSig, date) && !selectedSig.SigExpired(date), nil
+// Expired checks if given the selected self-signature if the subkey is expired.
+func (s *Subkey) Expired(selectedSig *packet.Signature, date time.Time) bool {
+	return s.PublicKey.KeyExpired(selectedSig, date) || selectedSig.SigExpired(date)
 }
 
 // Revoked returns whether the subkey has been revoked by a self-signature.
 // Note that third-party revocation signatures are not supported.
-func (s *Subkey) Revoked(date time.Time) bool {
+func (s *Subkey) Revoked(selfCertification *packet.Signature, date time.Time) bool {
 	// Verify revocations first
 	for _, revocation := range s.Revocations {
 		if !revocation.Verified {
-			err := s.Primary.PrimaryKey.VerifySubkeyRevocationSignature(revocation.Signature, s.PublicKey)
+			err := s.Primary.PrimaryKey.VerifySubkeyRevocationSignature(revocation.Packet, s.PublicKey)
 			revocation.Valid = err == nil
 			revocation.Verified = true
 		}
-		if revocation.Signature.RevocationReason != nil && *revocation.Signature.RevocationReason == packet.KeyCompromised {
+		if revocation.Valid &&
+			(revocation.Packet.RevocationReason == nil ||
+				*revocation.Packet.RevocationReason == packet.Unknown ||
+				*revocation.Packet.RevocationReason == packet.NoReason ||
+				*revocation.Packet.RevocationReason == packet.KeyCompromised) {
 			// If the key is compromised, the key is considered revoked even before the revocation date.
 			return true
 		}
-		if revocation.Valid && !revocation.Signature.SigExpired(date) {
+		if revocation.Valid && (date.IsZero() ||
+			!revocation.Packet.SigExpired(date) &&
+				(selfCertification == nil ||
+					selfCertification.CreationTime.Unix() <= revocation.Packet.CreationTime.Unix())) {
 			return true
 		}
 	}
 	return false
 }
 
-func (s *Subkey) getLatestValidBindingSignature(date time.Time) (selectedSig *packet.Signature, err error) {
+// Revoke generates a subkey revocation signature (packet.SigTypeSubkeyRevocation) for
+// a subkey with the specified reason code and text (RFC4880 section-5.2.3.23).
+// If config is nil, sensible defaults will be used.
+func (s *Subkey) Revoke(reason packet.ReasonForRevocation, reasonText string, config *packet.Config) error {
+	// Check that the subkey is valid (not considering expiration)
+	if _, err := s.Verify(time.Time{}); err != nil {
+		return err
+	}
+
+	revSig := createSignaturePacket(s.Primary.PrimaryKey, packet.SigTypeSubkeyRevocation, config)
+	revSig.RevocationReason = &reason
+	revSig.RevocationReasonText = reasonText
+
+	if err := revSig.RevokeSubkey(s.PublicKey, s.Primary.PrivateKey, config); err != nil {
+		return err
+	}
+	sig := packet.NewVerifiableSig(revSig)
+	sig.Valid = true
+	sig.Verified = true
+	s.Revocations = append(s.Revocations, sig)
+	return nil
+}
+
+// LatestValidBindingSignature returns the latest valid self-signature of this subkey
+// that is not newer than the provided date.
+// Does not consider signatures/embedded signatures that are expired.
+// If date is zero (i.e., date.IsZero() == true) the expiration checks are not performed.
+// Returns a StructuralError if no valid self-signature is found.
+func (s *Subkey) LatestValidBindingSignature(date time.Time) (selectedSig *packet.Signature, err error) {
 	for sigIdx := len(s.Bindings) - 1; sigIdx >= 0; sigIdx-- {
 		sig := s.Bindings[sigIdx]
-		if (date.IsZero() || date.Unix() >= sig.Signature.CreationTime.Unix()) &&
-			(selectedSig == nil || selectedSig.CreationTime.Unix() < sig.Signature.CreationTime.Unix()) {
+		if (date.IsZero() || date.Unix() >= sig.Packet.CreationTime.Unix()) &&
+			(selectedSig == nil || selectedSig.CreationTime.Unix() < sig.Packet.CreationTime.Unix()) {
 			if !sig.Verified {
-				err := s.Primary.PrimaryKey.VerifyKeySignature(s.PublicKey, sig.Signature)
+				err := s.Primary.PrimaryKey.VerifyKeySignature(s.PublicKey, sig.Packet)
 				sig.Valid = err == nil
 				sig.Verified = true
 			}
-			if sig.Valid {
-				selectedSig = sig.Signature
+			mainSigExpired := !date.IsZero() &&
+				sig.Packet.SigExpired(date)
+			embeddedSigExpired := !date.IsZero() &&
+				sig.Packet.FlagSign &&
+				sig.Packet.EmbeddedSignature != nil &&
+				sig.Packet.EmbeddedSignature.SigExpired(date)
+			if sig.Valid && !mainSigExpired && !embeddedSigExpired {
+				selectedSig = sig.Packet
 			}
 		}
 	}
 	if selectedSig == nil {
-		return nil, errors.StructuralError("no valid binding signature found for subkey at time: " + date.String())
+		return nil, errors.StructuralError("no valid binding signature found for subkey")
 	}
 	return
 }

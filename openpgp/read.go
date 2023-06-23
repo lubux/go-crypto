@@ -14,6 +14,7 @@ import (
 	"io"
 	"io/ioutil"
 	"strconv"
+	"time"
 
 	"github.com/ProtonMail/go-crypto/v2/openpgp/armor"
 	"github.com/ProtonMail/go-crypto/v2/openpgp/errors"
@@ -139,14 +140,14 @@ ParsePackets:
 				continue
 			}
 			if keyring != nil {
-				var keys []Key
-				if p.KeyId == 0 {
-					keys = keyring.DecryptionKeys()
-				} else {
-					keys = keyring.KeysById(p.KeyId)
-				}
-				for _, k := range keys {
-					pubKeys = append(pubKeys, keyEnvelopePair{k, p})
+				unverifiedEntities := keyring.EntitiesById(p.KeyId)
+				for _, unverifiedEntity := range unverifiedEntities {
+					var zeroTime time.Time
+					// Do not check key expiration to allow decryption of old messages
+					keys := unverifiedEntity.DecryptionKeys(p.KeyId, zeroTime)
+					for _, key := range keys {
+						pubKeys = append(pubKeys, keyEnvelopePair{key, p})
+					}
 				}
 			}
 		case *packet.SymmetricallyEncrypted:
@@ -185,12 +186,12 @@ FindKey:
 		candidateFingerprints := make(map[string]bool)
 
 		for _, pk := range pubKeys {
-			if pk.key.PrivateKey == nil {
+			if pk.key.PrivateKey() == nil {
 				continue
 			}
-			if !pk.key.PrivateKey.Encrypted {
+			if !pk.key.PrivateKey().Encrypted {
 				if len(pk.encryptedKey.Key) == 0 {
-					errDec := pk.encryptedKey.Decrypt(pk.key.PrivateKey, config)
+					errDec := pk.encryptedKey.Decrypt(pk.key.PrivateKey(), config)
 					if errDec != nil {
 						continue
 					}
@@ -211,7 +212,7 @@ FindKey:
 					break FindKey
 				}
 			} else {
-				fpr := string(pk.key.PublicKey.Fingerprint[:])
+				fpr := string(pk.key.PublicKey().Fingerprint[:])
 				if v := candidateFingerprints[fpr]; v {
 					continue
 				}
@@ -374,7 +375,7 @@ FindLiteralData:
 			sigCandidate := newSignatureCandidate(p)
 			md.IsSigned = true
 			if keyring != nil {
-				keys := keyring.KeysByIdUsage(p.KeyId, packet.KeyFlagSign)
+				keys := keyring.KeysById(p.KeyId)
 				if len(keys) > 0 {
 					sigCandidate.SignedBy = &keys[0]
 				}
@@ -520,7 +521,7 @@ func (scr *signatureCheckReader) Read(buf []byte) (int, error) {
 					scr.md.SignatureError = candidate.SignatureError
 				} else {
 					key := candidate.SignedBy
-					signatureError := key.PublicKey.VerifySignature(candidate.Hash, sig)
+					signatureError := key.PublicKey().VerifySignature(candidate.Hash, sig)
 					if signatureError == nil {
 						signatureError = checkSignatureDetails(key, sig, scr.config)
 					}
@@ -649,7 +650,7 @@ func verifyDetachedSignatureReader(keyring KeyRing, signed, signature io.Reader,
 		candidate := newSignatureCandidateFromSignature(sig)
 		md.SignatureCandidates = append(md.SignatureCandidates, candidate)
 
-		keys = keyring.KeysByIdUsage(candidate.IssuerKeyId, packet.KeyFlagSign)
+		keys = keyring.KeysById(candidate.IssuerKeyId)
 		if len(keys) > 0 {
 			candidate.SignedBy = &keys[0]
 		}
@@ -684,15 +685,44 @@ func verifyDetachedSignatureReader(keyring KeyRing, signed, signature io.Reader,
 // NOTE: The order of these checks is important, as the caller may choose to
 // ignore ErrSignatureExpired or ErrKeyExpired errors, but should never
 // ignore any other errors.
-func checkSignatureDetails(key *Key, signature *packet.Signature, config *packet.Config) error {
-	now := config.Now()
+func checkSignatureDetails(unverifiedKey *Key, signature *packet.Signature, config *packet.Config) error {
+	var collectedErrors []error
+	now := config.Now() // TODO: fallback to now similar to OpenPGP.js
 	sigTime := signature.CreationTime
-	primarySelfSignature, primaryIdentity := key.Entity.PrimarySelfSignature()
-	signedBySubKey := key.PublicKey != key.Entity.PrimaryKey
-	sigsToCheck := []*packet.Signature{signature, primarySelfSignature}
-	if signedBySubKey {
-		sigsToCheck = append(sigsToCheck, key.SelfSignature, key.SelfSignature.EmbeddedSignature)
+
+	signedBySubKey := unverifiedKey.Subkey != nil
+
+	if unverifiedKey.PublicKey().CreationTime.Unix() > signature.CreationTime.Unix() {
+		collectedErrors = append(collectedErrors, errors.ErrSignatureOlderThanKey)
 	}
+
+	primarySelfSignature, err := unverifiedKey.Entity.VerifyPrimaryKey(sigTime)
+	if err != nil {
+		collectedErrors = append(collectedErrors, err)
+	}
+	if primarySelfSignature == nil {
+		return err
+	}
+	sigsToCheck := []*packet.Signature{signature, primarySelfSignature}
+
+	if signedBySubKey {
+		subkeySelfSignature, err := unverifiedKey.Subkey.Verify(sigTime)
+		if err != nil {
+			collectedErrors = append(collectedErrors, err)
+		}
+		if subkeySelfSignature == nil {
+			return err
+		}
+		sigsToCheck = append(sigsToCheck, subkeySelfSignature, subkeySelfSignature.EmbeddedSignature)
+		if !isValidSigningKey(subkeySelfSignature, unverifiedKey.PublicKey().PubKeyAlgo) {
+			collectedErrors = append(collectedErrors, errors.ErrKeyIncorrect)
+		}
+	} else {
+		if !isValidSigningKey(primarySelfSignature, unverifiedKey.PublicKey().PubKeyAlgo) {
+			collectedErrors = append(collectedErrors, errors.ErrKeyIncorrect)
+		}
+	}
+
 	for _, sig := range sigsToCheck {
 		for _, notation := range sig.Notations {
 			if notation.IsCritical && !config.KnownNotation(notation.Name) {
@@ -700,23 +730,14 @@ func checkSignatureDetails(key *Key, signature *packet.Signature, config *packet
 			}
 		}
 	}
-	if key.Entity.Revoked(sigTime) || // primary key is revoked
-		(signedBySubKey && key.Revoked(sigTime)) || // subkey is revoked
-		(primaryIdentity != nil && primaryIdentity.Revoked(sigTime)) { // primary identity is revoked for v4
-		return errors.ErrKeyRevoked
+
+	if signature.SigExpired(now) {
+		return errors.ErrSignatureExpired
 	}
-	if key.Entity.PrimaryKey.KeyExpired(primarySelfSignature, sigTime) { // primary key is expired
-		return errors.ErrKeyExpired
-	}
-	if signedBySubKey {
-		if key.PublicKey.KeyExpired(key.SelfSignature, sigTime) { // subkey is expired
-			return errors.ErrKeyExpired
-		}
-	}
-	for _, sig := range sigsToCheck {
-		if sig.SigExpired(now) { // any of the relevant signatures are expired
-			return errors.ErrSignatureExpired
-		}
+
+	if len(collectedErrors) > 0 {
+		// TODO: Is there a better priority for errors?
+		return collectedErrors[len(collectedErrors)-1]
 	}
 	return nil
 }
