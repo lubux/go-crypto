@@ -26,40 +26,71 @@ type Reader struct {
 const maxReaders = 32
 
 // Next returns the most recently unread Packet, or reads another packet from
-// the top-most io.Reader. Unknown packet types are skipped.
+// the top-most io.Reader. Unknown/unsupported packet types are skipped.
 func (r *Reader) Next() (p Packet, err error) {
+	for {
+		p, err := r.read()
+		if err == io.EOF {
+			break
+		} else if err != nil {
+			if _, ok := err.(errors.UnknownPacketTypeError); ok {
+				continue
+			}
+			if _, ok := err.(errors.UnsupportedError); ok {
+				switch p.(type) {
+				case *SymmetricallyEncrypted, *AEADEncrypted, *Compressed, *LiteralData:
+					return nil, err
+				}
+				continue
+			}
+			return nil, err
+		} else {
+			return p, nil
+		}
+	}
+	return nil, io.EOF
+}
+
+// Next returns the most recently unread Packet, or reads another packet from
+// the top-most io.Reader. Unknown packet types are skipped while unsupported
+// packets are returned as UnsupportedPacket type.
+func (r *Reader) NextWithUnsupported() (p Packet, err error) {
+	for {
+		p, err = r.read()
+		if err == io.EOF {
+			break
+		} else if err != nil {
+			if _, ok := err.(errors.UnknownPacketTypeError); ok {
+				continue
+			}
+			if casteErr, ok := err.(errors.UnsupportedError); ok {
+				return &UnsupportedPacket{
+					IncompletePacket: p,
+					Error:            casteErr,
+				}, nil
+			}
+			return
+		} else {
+			return
+		}
+	}
+	return nil, io.EOF
+}
+
+func (r *Reader) read() (p Packet, err error) {
 	if len(r.q) > 0 {
 		p = r.q[len(r.q)-1]
 		r.q = r.q[:len(r.q)-1]
 		return
 	}
-
 	for len(r.readers) > 0 {
 		p, err = Read(r.readers[len(r.readers)-1])
-		if err == nil {
-			return
-		}
-		if err == io.EOF {
+		if err == io.EOF || err == io.ErrUnexpectedEOF {
 			r.readers = r.readers[:len(r.readers)-1]
 			continue
 		}
-		switch p.(type) {
-		case *Marker, Padding:
-			continue
-		}
-		if _, ok := err.(errors.UnknownPacketTypeError); ok {
-			continue
-		}
-		if _, ok := err.(errors.UnsupportedError); ok {
-			switch p.(type) {
-			case *SymmetricallyEncrypted, *AEADEncrypted, *Compressed, *LiteralData:
-				return nil, err
-			}
-			continue
-		}
-		return nil, err
+		return p, err
 	}
-
 	return nil, io.EOF
 }
 

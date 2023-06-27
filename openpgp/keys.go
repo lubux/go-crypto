@@ -433,22 +433,55 @@ func ReadEntity(packets *packet.Reader) (*Entity, error) {
 	if !e.PrimaryKey.PubKeyAlgo.CanSign() {
 		return nil, errors.StructuralError("primary key cannot be used for signatures")
 	}
+	var ignoreSigs bool
 EachPacket:
 	for {
-		p, err := packets.Next()
+		p, err := packets.NextWithUnsupported()
 		if err == io.EOF {
 			break
 		} else if err != nil {
 			return nil, err
 		}
 
+		var unsupported bool
+		if unsupportedPacket, ok := p.(*packet.UnsupportedPacket); ok {
+			unsupported = true
+			p = unsupportedPacket.IncompletePacket
+		}
+
+		// Handle unsupported keys
+		switch p.(type) {
+		case *packet.PublicKey, *packet.PrivateKey:
+			if unsupported {
+				ignoreSigs = true
+				continue
+			}
+		case *packet.Signature:
+			if unsupported || ignoreSigs {
+				continue
+			}
+		default:
+			if ignoreSigs {
+				ignoreSigs = false
+			}
+			if unsupported {
+				continue
+			}
+		}
+
 		switch pkt := p.(type) {
 		case *packet.UserId:
+			if ignoreSigs {
+				ignoreSigs = false
+			}
 			err := readUser(e, packets, pkt)
 			if err != nil {
 				return nil, err
 			}
 		case *packet.Signature:
+			if ignoreSigs {
+				continue
+			}
 			if pkt.SigType == packet.SigTypeKeyRevocation {
 				e.Revocations = append(e.Revocations, packet.NewVerifiableSig(pkt))
 			} else if pkt.SigType == packet.SigTypeDirectSignature {

@@ -25,9 +25,8 @@ func readUser(e *Entity, packets *packet.Reader, pkt *packet.UserId) error {
 		Name:    pkt.Id,
 		UserId:  pkt,
 	}
-
 	for {
-		p, err := packets.Next()
+		p, err := packets.NextWithUnsupported()
 		if err == io.EOF {
 			break
 		} else if err != nil {
