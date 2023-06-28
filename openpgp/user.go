@@ -14,9 +14,9 @@ type Identity struct {
 	Primary             *Entity
 	Name                string // by convention, has the form "Full Name (comment) <email@example.com>"
 	UserId              *packet.UserId
-	SelfCertifications  []*packet.VerifiableSig
-	OtherCertifications []*packet.VerifiableSig
-	Revocations         []*packet.VerifiableSig
+	SelfCertifications  []*packet.VerifiableSignature
+	OtherCertifications []*packet.VerifiableSignature
+	Revocations         []*packet.VerifiableSignature
 }
 
 func readUser(e *Entity, packets *packet.Reader, pkt *packet.UserId) error {
@@ -33,10 +33,19 @@ func readUser(e *Entity, packets *packet.Reader, pkt *packet.UserId) error {
 			return err
 		}
 
-		sig, ok := p.(*packet.Signature)
+		unsupportedPacket, unsupported := p.(*packet.UnsupportedPacket)
+		sigCandidate := p
+		if unsupported {
+			sigCandidate = unsupportedPacket.IncompletePacket
+		}
+		sig, ok := sigCandidate.(*packet.Signature)
 		if !ok {
+			// sigCandidate is a not a signature packet, reset and stop.
 			packets.Unread(p)
 			break
+		} else if unsupported {
+			// sigCandidate is a signature packet but unsupported.
+			continue
 		}
 
 		if sig.SigType != packet.SigTypeGenericCert &&
@@ -106,14 +115,14 @@ func (i *Identity) Revoked(selfCertification *packet.Signature, date time.Time) 
 			selfCertification.IssuerKeyId == nil ||
 			revocation.Packet.IssuerKeyId == nil ||
 			(*selfCertification.IssuerKeyId == *revocation.Packet.IssuerKeyId) { // check matching key id
-			if !revocation.Verified {
+			if revocation.Valid == nil {
 				// Verify revocation signature (not verified yet).
 				err := i.Primary.PrimaryKey.VerifyUserIdSignature(i.Name, i.Primary.PrimaryKey, revocation.Packet)
-				revocation.Valid = err == nil
-				revocation.Verified = true
+				valid := err == nil
+				revocation.Valid = &valid
 			}
 
-			if revocation.Valid &&
+			if *revocation.Valid &&
 				(date.IsZero() || // Check revocation not expired
 					!revocation.Packet.SigExpired(date)) &&
 				(selfCertification == nil || // Check that revocation is not older than the selfCertification
@@ -152,7 +161,7 @@ func (ident *Identity) SignIdentity(signer *Entity, config *packet.Config) error
 		return errors.InvalidArgumentError("no valid certification key found")
 	}
 
-	if certificationKey.PrivateKey().Encrypted {
+	if certificationKey.PrivateKey.Encrypted {
 		return errors.InvalidArgumentError("signing Entity's private key must be decrypted")
 	}
 
@@ -160,7 +169,7 @@ func (ident *Identity) SignIdentity(signer *Entity, config *packet.Config) error
 		return errors.InvalidArgumentError("given identity string not found in Entity")
 	}
 
-	sig := createSignaturePacket(certificationKey.PublicKey(), packet.SigTypeGenericCert, config)
+	sig := createSignaturePacket(certificationKey.PublicKey, packet.SigTypeGenericCert, config)
 
 	signingUserID := config.SigningUserId()
 	if signingUserID != "" {
@@ -170,7 +179,7 @@ func (ident *Identity) SignIdentity(signer *Entity, config *packet.Config) error
 		sig.SignerUserId = &signingUserID
 	}
 
-	if err := sig.SignUserId(ident.Name, ident.Primary.PrimaryKey, certificationKey.PrivateKey(), config); err != nil {
+	if err := sig.SignUserId(ident.Name, ident.Primary.PrimaryKey, certificationKey.PrivateKey, config); err != nil {
 		return err
 	}
 	ident.OtherCertifications = append(ident.OtherCertifications, packet.NewVerifiableSig(sig))
@@ -187,13 +196,13 @@ func (i *Identity) LatestValidSelfCertification(date time.Time) (selectedSig *pa
 		sig := i.SelfCertifications[sigIdx]
 		if (date.IsZero() || date.Unix() >= sig.Packet.CreationTime.Unix()) && // SelfCertification must be older than date
 			(selectedSig == nil || selectedSig.CreationTime.Unix() < sig.Packet.CreationTime.Unix()) { // Newer ones are preferred
-			if !sig.Verified {
+			if sig.Valid == nil {
 				// Verify revocation signature (not verified yet).
 				err = i.Primary.PrimaryKey.VerifyUserIdSignature(i.Name, i.Primary.PrimaryKey, sig.Packet)
-				sig.Valid = err == nil
-				sig.Verified = true
+				valid := err == nil
+				sig.Valid = &valid
 			}
-			if sig.Valid && (date.IsZero() || !sig.Packet.SigExpired(date)) {
+			if *sig.Valid && (date.IsZero() || !sig.Packet.SigExpired(date)) {
 				selectedSig = sig.Packet
 			}
 		}

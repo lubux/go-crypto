@@ -120,19 +120,16 @@ type Signature struct {
 	outSubpackets []outputSubpacket
 }
 
-// VerifiableSig internally keeps state if the
+// VerifiableSignature internally keeps state if the
 // the signature has been verified before.
-type VerifiableSig struct {
-	Verified bool
-	Valid    bool
-	Packet   *Signature
+type VerifiableSignature struct {
+	Valid  *bool // nil if it has not been verified yet
+	Packet *Signature
 }
 
-func NewVerifiableSig(signature *Signature) *VerifiableSig {
-	return &VerifiableSig{
-		Verified: false,
-		Valid:    false,
-		Packet:   signature,
+func NewVerifiableSig(signature *Signature) *VerifiableSignature {
+	return &VerifiableSignature{
+		Packet: signature,
 	}
 }
 

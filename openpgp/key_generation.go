@@ -71,7 +71,7 @@ func newEntity(uid *userIdData, config *packet.Config) (*Entity, error) {
 		PrivateKey:       primary,
 		Identities:       make(map[string]*Identity),
 		Subkeys:          []Subkey{},
-		DirectSignatures: []*packet.VerifiableSig{},
+		DirectSignatures: []*packet.VerifiableSignature{},
 	}
 
 	if config.V6() {
@@ -197,7 +197,7 @@ func (t *Entity) addUserId(userIdData userIdData, config *packet.Config, creatio
 		Primary:            t,
 		Name:               uid.Id,
 		UserId:             uid,
-		SelfCertifications: []*packet.VerifiableSig{packet.NewVerifiableSig(selfSignature)},
+		SelfCertifications: []*packet.VerifiableSignature{packet.NewVerifiableSig(selfSignature)},
 	}
 	return nil
 }
@@ -241,7 +241,7 @@ func (e *Entity) AddSigningSubkey(config *packet.Config) error {
 		return err
 	}
 
-	subkey.Bindings = []*packet.VerifiableSig{packet.NewVerifiableSig(sig)}
+	subkey.Bindings = []*packet.VerifiableSignature{packet.NewVerifiableSig(sig)}
 	subkey.Primary = e
 
 	e.Subkeys = append(e.Subkeys, subkey)
@@ -284,7 +284,7 @@ func (e *Entity) addEncryptionSubkey(config *packet.Config, creationTime time.Ti
 		return err
 	}
 
-	subkey.Bindings = []*packet.VerifiableSig{packet.NewVerifiableSig(sig)}
+	subkey.Bindings = []*packet.VerifiableSignature{packet.NewVerifiableSig(sig)}
 
 	subkey.Primary = e
 	e.Subkeys = append(e.Subkeys, subkey)

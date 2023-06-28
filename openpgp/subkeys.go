@@ -14,8 +14,8 @@ type Subkey struct {
 	Primary     *Entity
 	PublicKey   *packet.PublicKey
 	PrivateKey  *packet.PrivateKey
-	Bindings    []*packet.VerifiableSig
-	Revocations []*packet.VerifiableSig
+	Bindings    []*packet.VerifiableSignature
+	Revocations []*packet.VerifiableSignature
 }
 
 func readSubkey(primary *Entity, packets *packet.Reader, pub *packet.PublicKey, priv *packet.PrivateKey) error {
@@ -124,12 +124,12 @@ func (s *Subkey) Expired(selectedSig *packet.Signature, date time.Time) bool {
 func (s *Subkey) Revoked(selfCertification *packet.Signature, date time.Time) bool {
 	// Verify revocations first
 	for _, revocation := range s.Revocations {
-		if !revocation.Verified {
+		if revocation.Valid == nil {
 			err := s.Primary.PrimaryKey.VerifySubkeyRevocationSignature(revocation.Packet, s.PublicKey)
-			revocation.Valid = err == nil
-			revocation.Verified = true
+			valid := err == nil
+			revocation.Valid = &valid
 		}
-		if revocation.Valid &&
+		if *revocation.Valid &&
 			(revocation.Packet.RevocationReason == nil ||
 				*revocation.Packet.RevocationReason == packet.Unknown ||
 				*revocation.Packet.RevocationReason == packet.NoReason ||
@@ -137,7 +137,7 @@ func (s *Subkey) Revoked(selfCertification *packet.Signature, date time.Time) bo
 			// If the key is compromised, the key is considered revoked even before the revocation date.
 			return true
 		}
-		if revocation.Valid && (date.IsZero() ||
+		if *revocation.Valid && (date.IsZero() ||
 			!revocation.Packet.SigExpired(date) &&
 				(selfCertification == nil ||
 					selfCertification.CreationTime.Unix() <= revocation.Packet.CreationTime.Unix())) {
@@ -164,8 +164,8 @@ func (s *Subkey) Revoke(reason packet.ReasonForRevocation, reasonText string, co
 		return err
 	}
 	sig := packet.NewVerifiableSig(revSig)
-	sig.Valid = true
-	sig.Verified = true
+	valid := true
+	sig.Valid = &valid
 	s.Revocations = append(s.Revocations, sig)
 	return nil
 }
@@ -180,10 +180,10 @@ func (s *Subkey) LatestValidBindingSignature(date time.Time) (selectedSig *packe
 		sig := s.Bindings[sigIdx]
 		if (date.IsZero() || date.Unix() >= sig.Packet.CreationTime.Unix()) &&
 			(selectedSig == nil || selectedSig.CreationTime.Unix() < sig.Packet.CreationTime.Unix()) {
-			if !sig.Verified {
+			if sig.Valid == nil {
 				err := s.Primary.PrimaryKey.VerifyKeySignature(s.PublicKey, sig.Packet)
-				sig.Valid = err == nil
-				sig.Verified = true
+				valid := err == nil
+				sig.Valid = &valid
 			}
 			mainSigExpired := !date.IsZero() &&
 				sig.Packet.SigExpired(date)
@@ -191,7 +191,7 @@ func (s *Subkey) LatestValidBindingSignature(date time.Time) (selectedSig *packe
 				sig.Packet.FlagSign &&
 				sig.Packet.EmbeddedSignature != nil &&
 				sig.Packet.EmbeddedSignature.SigExpired(date)
-			if sig.Valid && !mainSigExpired && !embeddedSigExpired {
+			if *sig.Valid && !mainSigExpired && !embeddedSigExpired {
 				selectedSig = sig.Packet
 			}
 		}

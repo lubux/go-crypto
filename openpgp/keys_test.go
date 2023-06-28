@@ -69,7 +69,7 @@ func TestKeyExpiry(t *testing.T) {
 	if !ok {
 		t.Fatal("No encryption key found")
 	}
-	if id, expected := key.PublicKey().KeyIdShortString(), "CD3D39FF"; id != expected {
+	if id, expected := key.PublicKey.KeyIdShortString(), "CD3D39FF"; id != expected {
 		t.Errorf("Expected key %s at time %s, but got key %s", expected, time1.Format(timeFormat), id)
 	}
 
@@ -77,14 +77,14 @@ func TestKeyExpiry(t *testing.T) {
 	// selected.
 	time2, _ := time.Parse(timeFormat, "2013-07-09")
 	key, _ = entity.EncryptionKey(time2)
-	if id, expected := key.PublicKey().KeyIdShortString(), "CD3D39FF"; id != expected {
+	if id, expected := key.PublicKey.KeyIdShortString(), "CD3D39FF"; id != expected {
 		t.Errorf("Expected key %s at time %s, but got key %s", expected, time2.Format(timeFormat), id)
 	}
 
 	// Once all the keys have expired, nothing should be returned.
 	time3, _ := time.Parse(timeFormat, "2013-08-01")
 	if key, ok := entity.EncryptionKey(time3); ok {
-		t.Errorf("Expected no key at time %s, but got key %s", time3.Format(timeFormat), key.PublicKey().KeyIdShortString())
+		t.Errorf("Expected no key at time %s, but got key %s", time3.Format(timeFormat), key.PublicKey.KeyIdShortString())
 	}
 }
 
@@ -109,7 +109,7 @@ func TestExpiringPrimaryUIDKey(t *testing.T) {
 	key, found := entity.SigningKey(time1)
 	if !found {
 		t.Errorf("Signing subkey %s not found at time %s", expectedKeyID, time1.Format(timeFormat))
-	} else if observedKeyID := key.PublicKey().KeyIdShortString(); observedKeyID != expectedKeyID {
+	} else if observedKeyID := key.PublicKey.KeyIdShortString(); observedKeyID != expectedKeyID {
 		t.Errorf("Expected key %s at time %s, but got key %s", expectedKeyID, time1.Format(timeFormat), observedKeyID)
 	}
 
@@ -119,7 +119,7 @@ func TestExpiringPrimaryUIDKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	if key, ok := entity.SigningKey(time2); ok {
-		t.Errorf("Expected no key at time %s, but got key %s", time2.Format(timeFormat), key.PublicKey().KeyIdShortString())
+		t.Errorf("Expected no key at time %s, but got key %s", time2.Format(timeFormat), key.PublicKey.KeyIdShortString())
 	}
 }
 
@@ -155,7 +155,7 @@ func TestReturnFirstUnexpiredSigningSubkey(t *testing.T) {
 	if !found {
 		t.Errorf("Signing subkey %s not found at time %s", expected, time1.Format(time.UnixDate))
 	}
-	observed := subkey.PublicKey().KeyIdShortString()
+	observed := subkey.PublicKey.KeyIdShortString()
 	if observed != expected {
 		t.Errorf("Expected key %s at time %s, but got key %s", expected, time1.Format(time.UnixDate), observed)
 	}
@@ -167,7 +167,7 @@ func TestReturnFirstUnexpiredSigningSubkey(t *testing.T) {
 	if !found {
 		t.Errorf("Signing subkey %s not found at time %s", expected, time2.Format(time.UnixDate))
 	}
-	observed = subkey.PublicKey().KeyIdShortString()
+	observed = subkey.PublicKey.KeyIdShortString()
 	if observed != expected {
 		t.Errorf("Expected key %s at time %s, but got key %s", expected, time2.Format(time.UnixDate), observed)
 	}
@@ -531,12 +531,12 @@ func TestKeyRevocation(t *testing.T) {
 
 	signingkey, found := kring[0].SigningKey(time.Now())
 	if found {
-		t.Errorf("Expected SigningKey not to return a signing key for a revoked key, got %X", signingkey.PublicKey().KeyId)
+		t.Errorf("Expected SigningKey not to return a signing key for a revoked key, got %X", signingkey.PublicKey.KeyId)
 	}
 
 	encryptionkey, found := kring[0].EncryptionKey(time.Now())
 	if found {
-		t.Errorf("Expected EncryptionKey not to return an encryption key for a revoked key, got %X", encryptionkey.PublicKey().KeyId)
+		t.Errorf("Expected EncryptionKey not to return an encryption key for a revoked key, got %X", encryptionkey.PublicKey.KeyId)
 	}
 }
 
@@ -603,7 +603,7 @@ func TestSubkeyRevocation(t *testing.T) {
 		}
 		if id == encryptionKey {
 			key, found := kring[0].EncryptionKey(time.Now())
-			if !found || key.PublicKey().KeyId != id {
+			if !found || key.PublicKey.KeyId != id {
 				t.Errorf("Expected EncryptionKey to find key %X", id)
 			}
 		} else {
@@ -621,7 +621,7 @@ func TestSubkeyRevocation(t *testing.T) {
 
 	signingkey, found := kring[0].SigningKeyById(time.Now(), revokedKey)
 	if found {
-		t.Errorf("Expected SigningKeyById not to return an encryption key for a revoked key, got %X", signingkey.PublicKey().KeyId)
+		t.Errorf("Expected SigningKeyById not to return an encryption key for a revoked key, got %X", signingkey.PublicKey.KeyId)
 	}
 }
 

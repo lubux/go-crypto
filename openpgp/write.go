@@ -129,10 +129,10 @@ func detachSignWithWriter(w io.Writer, signers []*Entity, sigType packet.Signatu
 		if !ok {
 			return nil, errors.InvalidArgumentError("no valid signing keys")
 		}
-		if signingKey.PrivateKey() == nil {
+		if signingKey.PrivateKey == nil {
 			return nil, errors.InvalidArgumentError("signing key doesn't have a private key")
 		}
-		if signingKey.PrivateKey().Encrypted {
+		if signingKey.PrivateKey.Encrypted {
 			return nil, errors.InvalidArgumentError("signing key is encrypted")
 		}
 		candidateHashes := []uint8{
@@ -159,10 +159,10 @@ func detachSignWithWriter(w io.Writer, signers []*Entity, sigType packet.Signatu
 		}
 
 		detachSignCtx := detachSignContext{
-			signer: signingKey.PrivateKey(),
+			signer: signingKey.PrivateKey,
 		}
 
-		detachSignCtx.sig = createSignaturePacket(signingKey.PublicKey(), sigType, config)
+		detachSignCtx.sig = createSignaturePacket(signingKey.PublicKey, sigType, config)
 		detachSignCtx.sig.Hash = hash
 
 		detachSignCtx.h, err = detachSignCtx.sig.PrepareSign(config)
@@ -385,7 +385,7 @@ func writeAndSign(payload io.WriteCloser, candidateHashes [][]uint8, signEntitie
 		if !ok {
 			return nil, errors.InvalidArgumentError("no valid signing keys")
 		}
-		signer := signKey.PrivateKey()
+		signer := signKey.PrivateKey
 		if signer == nil {
 			return nil, errors.InvalidArgumentError("no private key in signing key")
 		}
@@ -598,7 +598,7 @@ func encrypt(
 	for idx, key := range encryptKeys {
 		// hide the keys of the hidden recipients
 		hidden := idx >= len(to)
-		if err := packet.SerializeEncryptedKeyAEAD(params.KeyWriter, key.PublicKey(), cipher, aeadSupported, params.SessionKey, hidden, config); err != nil {
+		if err := packet.SerializeEncryptedKeyAEAD(params.KeyWriter, key.PublicKey, cipher, aeadSupported, params.SessionKey, hidden, config); err != nil {
 			return nil, err
 		}
 	}

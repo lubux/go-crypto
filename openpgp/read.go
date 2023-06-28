@@ -142,9 +142,8 @@ ParsePackets:
 			if keyring != nil {
 				unverifiedEntities := keyring.EntitiesById(p.KeyId)
 				for _, unverifiedEntity := range unverifiedEntities {
-					var zeroTime time.Time
 					// Do not check key expiration to allow decryption of old messages
-					keys := unverifiedEntity.DecryptionKeys(p.KeyId, zeroTime)
+					keys := unverifiedEntity.DecryptionKeys(p.KeyId, time.Time{})
 					for _, key := range keys {
 						pubKeys = append(pubKeys, keyEnvelopePair{key, p})
 					}
@@ -186,12 +185,12 @@ FindKey:
 		candidateFingerprints := make(map[string]bool)
 
 		for _, pk := range pubKeys {
-			if pk.key.PrivateKey() == nil {
+			if pk.key.PrivateKey == nil {
 				continue
 			}
-			if !pk.key.PrivateKey().Encrypted {
+			if !pk.key.PrivateKey.Encrypted {
 				if len(pk.encryptedKey.Key) == 0 {
-					errDec := pk.encryptedKey.Decrypt(pk.key.PrivateKey(), config)
+					errDec := pk.encryptedKey.Decrypt(pk.key.PrivateKey, config)
 					if errDec != nil {
 						continue
 					}
@@ -212,7 +211,7 @@ FindKey:
 					break FindKey
 				}
 			} else {
-				fpr := string(pk.key.PublicKey().Fingerprint[:])
+				fpr := string(pk.key.PublicKey.Fingerprint[:])
 				if v := candidateFingerprints[fpr]; v {
 					continue
 				}
@@ -280,6 +279,7 @@ type SignatureCandidate struct {
 	IssuerFingerprint []byte // v6 only
 	Salt              []byte // v6 only
 
+	SignedByEntity    *Entity
 	SignedBy          *Key              // the key of the signer, if available. (OPS)
 	SignatureError    error             // nil if the signature is valid or not checked.
 	CorrespondingSig  *packet.Signature // the candidate's signature packet
@@ -375,9 +375,9 @@ FindLiteralData:
 			sigCandidate := newSignatureCandidate(p)
 			md.IsSigned = true
 			if keyring != nil {
-				keys := keyring.KeysById(p.KeyId)
+				keys := keyring.EntitiesById(p.KeyId)
 				if len(keys) > 0 {
-					sigCandidate.SignedBy = &keys[0]
+					sigCandidate.SignedByEntity = keys[0]
 				}
 			}
 			// If a message contains more than one one-pass signature, then the Signature packets bracket the message
@@ -476,7 +476,7 @@ func (scr *signatureCheckReader) Read(buf []byte) (int, error) {
 	n, sensitiveParsingError := scr.data.Read(buf)
 
 	for _, candidate := range scr.md.SignatureCandidates {
-		if candidate.SignatureError == nil && candidate.SignedBy != nil {
+		if candidate.SignatureError == nil && candidate.SignedByEntity != nil {
 			candidate.WrappedHash.Write(buf[:n])
 		}
 	}
@@ -516,14 +516,21 @@ func (scr *signatureCheckReader) Read(buf []byte) (int, error) {
 				candidate.SignatureError = errors.StructuralError("signature does not match the expected ops data")
 			}
 			if candidate.SignatureError == nil {
-				if candidate.SignedBy == nil {
+				if candidate.SignedByEntity == nil {
 					candidate.SignatureError = errors.ErrUnknownIssuer
 					scr.md.SignatureError = candidate.SignatureError
 				} else {
-					key := candidate.SignedBy
-					signatureError := key.PublicKey().VerifySignature(candidate.Hash, sig)
+					// Verify and retrieve signing key at signature creation time
+					key, err := candidate.SignedByEntity.signingKeyByIdUsage(sig.CreationTime, candidate.IssuerKeyId, packet.KeyFlagSign)
+					if err != nil {
+						candidate.SignatureError = err
+						continue
+					} else {
+						candidate.SignedBy = &key
+					}
+					signatureError := key.PublicKey.VerifySignature(candidate.Hash, sig)
 					if signatureError == nil {
-						signatureError = checkSignatureDetails(key, sig, scr.config)
+						signatureError = checkSignatureDetails(&key, sig, scr.config)
 					}
 					if !scr.md.IsSymmetricallyEncrypted && len(sig.IntendedRecipients) > 0 && scr.md.CheckRecipients && signatureError == nil {
 						// Check signature matches one of the recipients
@@ -623,7 +630,6 @@ func verifyDetachedSignature(keyring KeyRing, signed, signature io.Reader, confi
 }
 
 func verifyDetachedSignatureReader(keyring KeyRing, signed, signature io.Reader, config *packet.Config) (md *MessageDetails, err error) {
-	var keys []Key
 	var p packet.Packet
 	md = &MessageDetails{
 		IsEncrypted:     false,
@@ -650,9 +656,9 @@ func verifyDetachedSignatureReader(keyring KeyRing, signed, signature io.Reader,
 		candidate := newSignatureCandidateFromSignature(sig)
 		md.SignatureCandidates = append(md.SignatureCandidates, candidate)
 
-		keys = keyring.KeysById(candidate.IssuerKeyId)
+		keys := keyring.EntitiesById(candidate.IssuerKeyId)
 		if len(keys) > 0 {
-			candidate.SignedBy = &keys[0]
+			candidate.SignedByEntity = keys[0]
 		}
 	}
 
@@ -668,61 +674,19 @@ func verifyDetachedSignatureReader(keyring KeyRing, signed, signature io.Reader,
 }
 
 // checkSignatureDetails returns an error if:
-//   - The signature (or one of the binding signatures mentioned below)
-//     has a unknown critical notation data subpacket
-//   - The primary key of the signing entity is revoked
-//   - The primary identity is revoked
-//   - The signature is expired
-//   - The primary key of the signing entity is expired according to the
-//     primary identity binding signature
-//
-// ... or, if the signature was signed by a subkey and:
-//   - The signing subkey is revoked
-//   - The signing subkey is expired according to the subkey binding signature
-//   - The signing subkey binding signature is expired
-//   - The signing subkey cross-signature is expired
-//
-// NOTE: The order of these checks is important, as the caller may choose to
-// ignore ErrSignatureExpired or ErrKeyExpired errors, but should never
-// ignore any other errors.
-func checkSignatureDetails(unverifiedKey *Key, signature *packet.Signature, config *packet.Config) error {
+func checkSignatureDetails(verifiedKey *Key, signature *packet.Signature, config *packet.Config) error {
 	var collectedErrors []error
-	now := config.Now() // TODO: fallback to now similar to OpenPGP.js
-	sigTime := signature.CreationTime
+	now := config.Now()
 
-	signedBySubKey := unverifiedKey.Subkey != nil
-
-	if unverifiedKey.PublicKey().CreationTime.Unix() > signature.CreationTime.Unix() {
+	if verifiedKey.PublicKey.CreationTime.Unix() > signature.CreationTime.Unix() {
 		collectedErrors = append(collectedErrors, errors.ErrSignatureOlderThanKey)
 	}
 
-	primarySelfSignature, err := unverifiedKey.Entity.VerifyPrimaryKey(sigTime)
-	if err != nil {
-		collectedErrors = append(collectedErrors, err)
-	}
-	if primarySelfSignature == nil {
-		return err
-	}
-	sigsToCheck := []*packet.Signature{signature, primarySelfSignature}
+	sigsToCheck := []*packet.Signature{signature, verifiedKey.PrimarySelfSignature}
 
-	if signedBySubKey {
-		subkeySelfSignature, err := unverifiedKey.Subkey.Verify(sigTime)
-		if err != nil {
-			collectedErrors = append(collectedErrors, err)
-		}
-		if subkeySelfSignature == nil {
-			return err
-		}
-		sigsToCheck = append(sigsToCheck, subkeySelfSignature, subkeySelfSignature.EmbeddedSignature)
-		if !isValidSigningKey(subkeySelfSignature, unverifiedKey.PublicKey().PubKeyAlgo) {
-			collectedErrors = append(collectedErrors, errors.ErrKeyIncorrect)
-		}
-	} else {
-		if !isValidSigningKey(primarySelfSignature, unverifiedKey.PublicKey().PubKeyAlgo) {
-			collectedErrors = append(collectedErrors, errors.ErrKeyIncorrect)
-		}
+	if !verifiedKey.IsPrimary() {
+		sigsToCheck = append(sigsToCheck, verifiedKey.SelfSignature, verifiedKey.SelfSignature.EmbeddedSignature)
 	}
-
 	for _, sig := range sigsToCheck {
 		for _, notation := range sig.Notations {
 			if notation.IsCritical && !config.KnownNotation(notation.Name) {

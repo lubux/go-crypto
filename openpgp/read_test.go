@@ -131,7 +131,7 @@ func checkSignedMessage(t *testing.T, signedHex, expected string) {
 		t.Errorf("bad MessageDetails: %#v", md)
 	}
 
-	if !md.IsSigned || md.SignatureCandidates[0].IssuerKeyId != 0xa34d7e18c20c31bb || md.SignatureCandidates[0].SignedBy == nil || md.IsEncrypted || md.IsSymmetricallyEncrypted || len(md.EncryptedToKeyIds) != 0 || md.DecryptedWith.Entity != nil {
+	if !md.IsSigned || md.SignatureCandidates[0].IssuerKeyId != 0xa34d7e18c20c31bb || md.SignatureCandidates[0].SignedByEntity == nil || md.IsEncrypted || md.IsSymmetricallyEncrypted || len(md.EncryptedToKeyIds) != 0 || md.DecryptedWith.Entity != nil {
 		t.Errorf("bad MessageDetails: %#v", md)
 	}
 
@@ -217,7 +217,7 @@ func TestSignedEncryptedMessage(t *testing.T) {
 				return nil, errors.ErrKeyIncorrect
 			}
 
-			err := keys[0].PrivateKey().Decrypt([]byte("passphrase"))
+			err := keys[0].PrivateKey.Decrypt([]byte("passphrase"))
 			if err != nil {
 				t.Errorf("prompt: error decrypting key: %s", err)
 				return nil, errors.ErrKeyIncorrect
@@ -236,7 +236,7 @@ func TestSignedEncryptedMessage(t *testing.T) {
 			t.Errorf("#%d: bad MessageDetails: %#v", i, md)
 		}
 
-		if !md.IsSigned || md.SignatureCandidates[0].IssuerKeyId != test.signedByKeyId || md.SignatureCandidates[0].SignedBy == nil || !md.IsEncrypted || md.IsSymmetricallyEncrypted || len(md.EncryptedToKeyIds) == 0 || md.EncryptedToKeyIds[0] != test.encryptedToKeyId {
+		if !md.IsSigned || md.SignatureCandidates[0].IssuerKeyId != test.signedByKeyId || md.SignatureCandidates[0].SignedByEntity == nil || !md.IsEncrypted || md.IsSymmetricallyEncrypted || len(md.EncryptedToKeyIds) == 0 || md.EncryptedToKeyIds[0] != test.encryptedToKeyId {
 			t.Errorf("#%d: bad MessageDetails: %#v", i, md)
 		}
 
