@@ -85,7 +85,7 @@ func (r *Reader) read() (p Packet, err error) {
 	}
 	for len(r.readers) > 0 {
 		p, err = Read(r.readers[len(r.readers)-1])
-		if err == io.EOF || err == io.ErrUnexpectedEOF {
+		if err == io.EOF {
 			r.readers = r.readers[:len(r.readers)-1]
 			continue
 		}
