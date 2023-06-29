@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"strings"
 	"testing"
 
 	"github.com/ProtonMail/go-crypto/v2/openpgp"
@@ -69,21 +70,21 @@ func TestParseWithNoNewlineAtEnd(t *testing.T) {
 var signingTests = []struct {
 	in, signed, plaintext string
 }{
-	{"", "", ""},
+	{"", "", "\n"},
 	{"a", "a", "a\n"},
-	{"a\n", "a", "a\n"},
-	{"-a\n", "-a", "-a\n"},
+	{"a\n", "a\r\n", "a\n\n"},
+	{"-a\n", "-a\r\n", "-a\n\n"},
 	{"--a\nb", "--a\r\nb", "--a\nb\n"},
 	// leading whitespace
-	{" a\n", " a", " a\n"},
-	{"  a\n", "  a", "  a\n"},
+	{" a\n", " a\r\n", " a\n\n"},
+	{"  a\n", "  a\r\n", "  a\n\n"},
 	// trailing whitespace (should be stripped)
-	{"a \n", "a", "a\n"},
+	{"a \n", "a\r\n", "a\n\n"},
 	{"a ", "a", "a\n"},
-	// whitespace-only lines (should be stripped)
-	{"  \n", "", "\n"},
+	{"  \n", "\r\n", "\n\n"},
 	{"  ", "", "\n"},
-	{"a\n  \n  \nb\n", "a\r\n\r\n\r\nb", "a\n\n\nb\n"},
+	{"a\n  \n  \nb\n", "a\r\n\r\n\r\nb\r\n", "a\n\n\nb\n\n"},
+	{"a\n  \n  \nb\n", "a\r\n\r\n\r\nb\r\n", "a\n\n\nb\n\n"},
 }
 
 func TestVerifyV6(t *testing.T) {
@@ -139,6 +140,29 @@ func TestSigning(t *testing.T) {
 		if _, _, err := openpgp.VerifyDetachedSignature(keyring, bytes.NewBuffer(b.Bytes), b.ArmoredSignature.Body, config); err != nil {
 			t.Errorf("#%d: failed to check signature: %s", i, err)
 		}
+	}
+}
+
+func TestSigningInterop(t *testing.T) {
+	keyring, err := openpgp.ReadArmoredKeyRing(bytes.NewBufferString(signingKey))
+	if err != nil {
+		t.Errorf("failed to parse public key: %s", err)
+	}
+
+	var buf bytes.Buffer
+	plaintext, err := Encode(&buf, keyring[0].PrivateKey, nil, nil)
+	if err != nil {
+		t.Errorf("error from Encode")
+	}
+	if _, err := plaintext.Write([]byte(trickyGrocery)); err != nil {
+		t.Errorf("error from Write")
+	}
+	if err := plaintext.Close(); err != nil {
+		t.Fatalf("error from Close")
+	}
+	expected := "- - tofu\n- - vegetables\n- - noodles\n\n\n"
+	if !strings.Contains(buf.String(), expected) {
+		t.Fatalf("expected output to contain %s but got: %s", expected, buf.String())
 	}
 }
 
@@ -455,3 +479,11 @@ wpgGARsKAAAAKQWCY5ijYyIhBssYbE8GCaaX5NUt+mxyKwwfHifBilZwj2Ul7Ce6
 /FvLFuGWMbKAdA+epq7V4HOtAPlBWmU8QOd6aud+aSunHQaaEJ+iTFjP2OMW0KBr
 NK2ay45cX1IVAQ==
 -----END PGP SIGNATURE-----`
+
+const trickyGrocery = `From the grocery store we need:
+
+- tofu
+- vegetables
+- noodles
+
+`

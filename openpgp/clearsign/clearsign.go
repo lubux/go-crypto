@@ -111,7 +111,7 @@ func Decode(data []byte) (b *Block, rest []byte) {
 			return nil, data
 		}
 		// An empty line marks the end of the headers.
-		if line, rest = getLine(rest); len(line) == 0 {
+		if line, rest = getLine(rest); len(strings.TrimSpace(string(line))) == 0 {
 			break
 		}
 
@@ -294,10 +294,13 @@ func (d *dashEscaper) Write(data []byte) (n int, err error) {
 }
 
 func (d *dashEscaper) Close() (err error) {
-	if !d.atBeginningOfLine {
-		if err = d.buffered.WriteByte(lf); err != nil {
-			return
+	if d.atBeginningOfLine {
+		if !d.isFirstLine {
+			d.toHash.Write(crlf)
 		}
+	}
+	if err = d.buffered.WriteByte(lf); err != nil {
+		return
 	}
 
 	out, err := armor.Encode(d.buffered, "PGP SIGNATURE", d.armorHeader)
