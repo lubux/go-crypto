@@ -582,6 +582,39 @@ func TestSignatureV3Message(t *testing.T) {
 	}
 }
 
+func TestSignatureOldStyleMessage(t *testing.T) {
+	sig, err := armor.Decode(strings.NewReader(signedMessageOldStyle))
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	key, err := ReadArmoredKeyRing(strings.NewReader(signedMessageOldStyleKey))
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	md, err := ReadMessage(sig.Body, key, nil, nil)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	_, err = ioutil.ReadAll(md.UnverifiedBody)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	if !md.IsVerified {
+		t.Errorf("not verified despite all data read")
+	}
+	// We'll see a sig error here after reading in the UnverifiedBody above,
+	// if there was one to see.
+	if err = md.SignatureError; err != nil {
+		t.Error("Expected no signature error, got: ", err)
+		return
+	}
+}
+
 func TestReadV6Messages(t *testing.T) {
 	key, err := ReadArmoredKeyRing(strings.NewReader(v6PrivKey))
 	if err != nil {
