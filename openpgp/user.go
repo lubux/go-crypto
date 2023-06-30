@@ -53,7 +53,8 @@ func readUser(e *Entity, packets *packet.Reader, pkt *packet.UserId) error {
 			sig.SigType != packet.SigTypeCasualCert &&
 			sig.SigType != packet.SigTypePositiveCert &&
 			sig.SigType != packet.SigTypeCertificationRevocation {
-			return errors.StructuralError("user ID signature with wrong type")
+			// Ignore signatures with wrong type
+			continue
 		}
 
 		if sig.CheckKeyIdOrFingerprint(e.PrimaryKey) {

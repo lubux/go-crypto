@@ -40,7 +40,8 @@ func readSubkey(primary *Entity, packets *packet.Reader, pub *packet.PublicKey, 
 		}
 
 		if sig.SigType != packet.SigTypeSubkeyBinding && sig.SigType != packet.SigTypeSubkeyRevocation {
-			return errors.StructuralError("subkey signature with wrong type")
+			// Ignore signatures with wrong type
+			continue
 		}
 		switch sig.SigType {
 		case packet.SigTypeSubkeyRevocation:
