@@ -573,8 +573,12 @@ func (scr *signatureCheckReader) Read(buf []byte) (int, error) {
 							signatureError = checkSignatureDetails(&key, sig, scr.config)
 						}
 						if !scr.md.IsSymmetricallyEncrypted && len(sig.IntendedRecipients) > 0 && scr.md.CheckRecipients && signatureError == nil {
-							// Check signature matches one of the recipients
-							signatureError = checkIntendedRecipientsMatch(&scr.md.DecryptedWith, sig)
+							if !scr.md.IsEncrypted {
+								signatureError = errors.SignatureError("intended recipients in non-encrypted message")
+							} else {
+								// Check signature matches one of the recipients
+								signatureError = checkIntendedRecipientsMatch(&scr.md.DecryptedWith, sig)
+							}
 						}
 						candidate.SignatureError = signatureError
 					}
