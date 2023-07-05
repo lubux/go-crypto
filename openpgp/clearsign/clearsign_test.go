@@ -6,6 +6,7 @@ package clearsign
 
 import (
 	"bytes"
+	"crypto"
 	"fmt"
 	"io"
 	"strings"
@@ -14,6 +15,13 @@ import (
 	"github.com/ProtonMail/go-crypto/v2/openpgp"
 	"github.com/ProtonMail/go-crypto/v2/openpgp/packet"
 )
+
+var allowAllAlgorithmsConfig = &packet.Config{
+	RejectPublicKeyAlgorithms:   map[packet.PublicKeyAlgorithm]bool{},
+	RejectMessageHashAlgorithms: map[crypto.Hash]bool{},
+	RejectCurves:                map[packet.Curve]bool{},
+	MinRSABits:                  512,
+}
 
 func testParse(t *testing.T, input []byte, expected, expectedPlaintext string) {
 	b, rest := Decode(input)
@@ -39,13 +47,12 @@ func testParse(t *testing.T, input []byte, expected, expectedPlaintext string) {
 		t.Errorf("failed to parse public key: %s", err)
 	}
 
-	config := &packet.Config{}
-	if _, _, err := openpgp.VerifyDetachedSignature(keyring, bytes.NewBuffer(b.Bytes), b.ArmoredSignature.Body, config); err != nil {
+	if _, _, err := openpgp.VerifyDetachedSignature(keyring, bytes.NewBuffer(b.Bytes), b.ArmoredSignature.Body, allowAllAlgorithmsConfig); err != nil {
 		t.Errorf("failed to check signature: %s", err)
 	}
 
 	b, _ = Decode(input)
-	if _, err := b.VerifySignature(keyring, config); err != nil {
+	if _, err := b.VerifySignature(keyring, allowAllAlgorithmsConfig); err != nil {
 		t.Errorf("failed to check signature: %s", err)
 	}
 }
@@ -104,11 +111,10 @@ func TestSigning(t *testing.T) {
 	if err != nil {
 		t.Errorf("failed to parse public key: %s", err)
 	}
-
 	for i, test := range signingTests {
 		var buf bytes.Buffer
 
-		plaintext, err := Encode(&buf, keyring[0].PrivateKey, nil, nil)
+		plaintext, err := Encode(&buf, keyring[0].PrivateKey, allowAllAlgorithmsConfig, nil)
 		if err != nil {
 			t.Errorf("#%d: error from Encode: %s", i, err)
 			continue
@@ -136,8 +142,7 @@ func TestSigning(t *testing.T) {
 			continue
 		}
 
-		config := &packet.Config{}
-		if _, _, err := openpgp.VerifyDetachedSignature(keyring, bytes.NewBuffer(b.Bytes), b.ArmoredSignature.Body, config); err != nil {
+		if _, _, err := openpgp.VerifyDetachedSignature(keyring, bytes.NewBuffer(b.Bytes), b.ArmoredSignature.Body, allowAllAlgorithmsConfig); err != nil {
 			t.Errorf("#%d: failed to check signature: %s", i, err)
 		}
 	}

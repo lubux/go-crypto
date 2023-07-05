@@ -4,6 +4,7 @@ package integrationtests
 
 import (
 	"bytes"
+	"crypto"
 	"encoding/json"
 	"io"
 	"io/ioutil"
@@ -34,6 +35,13 @@ type testVector struct {
 	config                 *packet.Config
 }
 
+var allowAllAlgorithmsConfig = packet.Config{
+	RejectMessageHashAlgorithms: map[crypto.Hash]bool{},
+	RejectPublicKeyAlgorithms:   map[packet.PublicKeyAlgorithm]bool{},
+	RejectCurves:                map[packet.Curve]bool{},
+	MinRSABits:                  512,
+}
+
 // Takes a set of different keys (some external, some generated here) and test
 // interactions between them: encrypt, sign, decrypt, verify random messages.
 func TestEndToEnd(t *testing.T) {
@@ -54,6 +62,8 @@ func TestEndToEnd(t *testing.T) {
 
 	for i := 0; i < len(foreignTestVectors); i++ {
 		foreignTestVectors[i].Name += "_foreign"
+		config := allowAllAlgorithmsConfig
+		foreignTestVectors[i].config = &config
 	}
 
 	// Generate random test vectors
@@ -205,7 +215,7 @@ func encDecTest(t *testing.T, from testVector, testVectors []testVector) {
 			if !md.IsEncrypted {
 				t.Fatal("The message should be encrypted")
 			}
-			signKey, _ := signer.SigningKey(time.Now())
+			signKey, _ := signer.SigningKey(time.Now(), &allowAllAlgorithmsConfig)
 			expectedKeyID := signKey.PublicKey.KeyId
 			expectedFingerprint := signKey.PublicKey.Fingerprint
 			if len(md.SignatureCandidates) != 1 {
@@ -232,7 +242,7 @@ func encDecTest(t *testing.T, from testVector, testVectors []testVector) {
 			if !md.IsVerified {
 				t.Errorf("not verified despite all data read")
 			}
-			encryptKey, _ := pkTo[0].EncryptionKey(time.Now())
+			encryptKey, _ := pkTo[0].EncryptionKey(time.Now(), &allowAllAlgorithmsConfig)
 			expectedEncKeyID := encryptKey.PublicKey.KeyId
 			if len(md.EncryptedToKeyIds) != 1 ||
 				md.EncryptedToKeyIds[0] != expectedEncKeyID {
@@ -285,9 +295,9 @@ func signVerifyTest(
 	buf := new(bytes.Buffer)
 	var errSign error
 	if binary {
-		errSign = openpgp.ArmoredDetachSign(buf, skFrom[:1], message, nil)
+		errSign = openpgp.ArmoredDetachSign(buf, skFrom[:1], message, &allowAllAlgorithmsConfig)
 	} else {
-		errSign = openpgp.ArmoredDetachSignText(buf, skFrom[:1], message, nil)
+		errSign = openpgp.ArmoredDetachSignText(buf, skFrom[:1], message, &allowAllAlgorithmsConfig)
 	}
 	if errSign != nil {
 		t.Error(errSign)
@@ -296,7 +306,7 @@ func signVerifyTest(
 	// Verify the signature against the corrupt message first
 	signatureReader := bytes.NewReader(buf.Bytes())
 	_, wrongsigner, err := openpgp.VerifyArmoredDetachedSignature(
-		pkFrom, corruptMessage, signatureReader, nil)
+		pkFrom, corruptMessage, signatureReader, &allowAllAlgorithmsConfig)
 	if err == nil || wrongsigner != nil {
 		t.Fatal("Expected the signature to not verify")
 	}
@@ -310,7 +320,7 @@ func signVerifyTest(
 	}
 
 	_, otherSigner, err := openpgp.VerifyArmoredDetachedSignature(
-		pkFrom, otherMessage, signatureReader, nil)
+		pkFrom, otherMessage, signatureReader, &allowAllAlgorithmsConfig)
 	if binary {
 		if err == nil || otherSigner != nil {
 			t.Fatal("Expected the signature to not verify")
@@ -340,7 +350,7 @@ func signVerifyTest(
 	}
 
 	_, otherSigner, err = openpgp.VerifyArmoredDetachedSignature(
-		pkFrom, message, signatureReader, nil)
+		pkFrom, message, signatureReader, &allowAllAlgorithmsConfig)
 
 	if err != nil {
 		t.Fatalf("signature error: %s", err)

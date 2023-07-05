@@ -100,6 +100,12 @@ func (keyRevokedError) Error() string {
 
 var ErrKeyRevoked error = keyRevokedError(0)
 
+type WeakAlgorithmError string
+
+func (e WeakAlgorithmError) Error() string {
+	return "openpgp: weak algorithms are rejected: " + string(e)
+}
+
 type UnknownPacketTypeError uint8
 
 func (upte UnknownPacketTypeError) Error() string {

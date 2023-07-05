@@ -14,6 +14,21 @@ import (
 	"github.com/ProtonMail/go-crypto/v2/openpgp/s2k"
 )
 
+var (
+	defaultRejectPublicKeyAlgorithms = map[PublicKeyAlgorithm]bool{
+		PubKeyAlgoElGamal: true,
+		PubKeyAlgoDSA:     true,
+	}
+	defaultRejectMessageHashAlgorithms = map[crypto.Hash]bool{
+		crypto.SHA1:      true,
+		crypto.MD5:       true,
+		crypto.RIPEMD160: true,
+	}
+	defaultRejectCurves = map[Curve]bool{
+		CurveSecP256k1: true,
+	}
+)
+
 // Config collects a number of parameters along with sensible defaults.
 // A nil *Config is valid and results in all default values.
 type Config struct {
@@ -79,6 +94,12 @@ type Config struct {
 	// V6Keys configures version 6 key generation. If false, this package still
 	// supports version 6 keys, but produces version 4 keys.
 	V6Keys bool
+	// Minimum RSA key size allowed for key generation and message signing, verification and encryption.
+	MinRSABits uint16
+	// Reject insecure algorithms
+	RejectPublicKeyAlgorithms   map[PublicKeyAlgorithm]bool
+	RejectMessageHashAlgorithms map[crypto.Hash]bool
+	RejectCurves                map[Curve]bool
 	// "The validity period of the key.  This is the number of seconds after
 	// the key creation time that the key expires.  If this is not present
 	// or has a value of zero, the key never expires.  This is found only on
@@ -278,4 +299,44 @@ func (c *Config) RetrieveSessionKey() bool {
 		return false
 	}
 	return c.CacheSessionKey
+}
+
+func (c *Config) MinimumRSABits() uint16 {
+	if c == nil || c.MinRSABits == 0 {
+		return 2047
+	}
+	return c.MinRSABits
+}
+
+func (c *Config) RejectPublicKeyAlgorithm(alg PublicKeyAlgorithm) bool {
+	var rejectedAlgorithms map[PublicKeyAlgorithm]bool
+	if c == nil || c.RejectPublicKeyAlgorithms == nil {
+		// Default
+		rejectedAlgorithms = defaultRejectPublicKeyAlgorithms
+	} else {
+		rejectedAlgorithms = c.RejectPublicKeyAlgorithms
+	}
+	return rejectedAlgorithms[alg]
+}
+
+func (c *Config) RejectMessageHashAlgorithm(hash crypto.Hash) bool {
+	var rejectedAlgorithms map[crypto.Hash]bool
+	if c == nil || c.RejectMessageHashAlgorithms == nil {
+		// Default
+		rejectedAlgorithms = defaultRejectMessageHashAlgorithms
+	} else {
+		rejectedAlgorithms = c.RejectMessageHashAlgorithms
+	}
+	return rejectedAlgorithms[hash]
+}
+
+func (c *Config) RejectCurve(curve Curve) bool {
+	var rejectedCurve map[Curve]bool
+	if c == nil || c.RejectCurves == nil {
+		// Default
+		rejectedCurve = defaultRejectCurves
+	} else {
+		rejectedCurve = c.RejectCurves
+	}
+	return rejectedCurve[curve]
 }

@@ -121,7 +121,7 @@ func TestGetKeyById(t *testing.T) {
 func checkSignedMessage(t *testing.T, signedHex, expected string) {
 	kring, _ := ReadKeyRing(readerFromHex(testKeys1And2Hex))
 
-	md, err := ReadMessage(readerFromHex(signedHex), kring, nil, nil)
+	md, err := ReadMessage(readerFromHex(signedHex), kring, nil, &allowAllAlgorithmsConfig)
 	if err != nil {
 		t.Error(err)
 		return
@@ -226,7 +226,7 @@ func TestSignedEncryptedMessage(t *testing.T) {
 			return nil, nil
 		}
 
-		md, err := ReadMessage(readerFromHex(test.messageHex), kring, prompt, nil)
+		md, err := ReadMessage(readerFromHex(test.messageHex), kring, prompt, &allowAllAlgorithmsConfig)
 		if err != nil {
 			t.Errorf("#%d: error reading message: %s", i, err)
 			return
@@ -337,8 +337,7 @@ func TestSymmetricallyEncrypted(t *testing.T) {
 
 func testDetachedSignature(t *testing.T, kring KeyRing, signature io.Reader, sigInput, tag string, expectedSignerKeyId uint64) {
 	signed := bytes.NewBufferString(sigInput)
-	config := &packet.Config{}
-	_, signer, err := VerifyDetachedSignature(kring, signed, signature, config)
+	_, signer, err := VerifyDetachedSignature(kring, signed, signature, &allowAllAlgorithmsConfig)
 	if err != nil {
 		t.Errorf("%s: signature error: %s", tag, err)
 		return
@@ -437,7 +436,7 @@ func TestSignatureUnknownNotation(t *testing.T) {
 		t.Error(err)
 		return
 	}
-	md, err := ReadMessage(raw.Body, el, nil, nil)
+	md, err := ReadMessage(raw.Body, el, nil, &allowAllAlgorithmsConfig)
 	if err != nil {
 		t.Error(err)
 		return
@@ -463,12 +462,11 @@ func TestSignatureKnownNotation(t *testing.T) {
 		t.Error(err)
 		return
 	}
-	config := &packet.Config{
-		KnownNotations: map[string]bool{
-			"test@example.com": true,
-		},
+	config := allowAllAlgorithmsConfig
+	config.KnownNotations = map[string]bool{
+		"test@example.com": true,
 	}
-	md, err := ReadMessage(raw.Body, el, nil, config)
+	md, err := ReadMessage(raw.Body, el, nil, &config)
 	if err != nil {
 		t.Error(err)
 		return

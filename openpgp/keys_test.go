@@ -48,6 +48,13 @@ var aeadModes = []packet.AEADMode{
 	packet.AEADModeGCM,
 }
 
+var allowAllAlgorithmsConfig = packet.Config{
+	RejectPublicKeyAlgorithms:   map[packet.PublicKeyAlgorithm]bool{},
+	RejectCurves:                map[packet.Curve]bool{},
+	RejectMessageHashAlgorithms: map[crypto.Hash]bool{},
+	MinRSABits:                  512,
+}
+
 func TestKeyExpiry(t *testing.T) {
 	kring, err := ReadKeyRing(readerFromHex(expiringKeyHex))
 	if err != nil {
@@ -65,7 +72,7 @@ func TestKeyExpiry(t *testing.T) {
 	// sub  1024R/96A672F5  created: 2013-07-01 23:11:23 +0200 CEST  expires: 2013-07-31  usage: E
 	//
 	// So this should select the newest, non-expired encryption key.
-	key, ok := entity.EncryptionKey(time1)
+	key, ok := entity.EncryptionKey(time1, nil)
 	if !ok {
 		t.Fatal("No encryption key found")
 	}
@@ -76,14 +83,14 @@ func TestKeyExpiry(t *testing.T) {
 	// Once the first encryption subkey has expired, the second should be
 	// selected.
 	time2, _ := time.Parse(timeFormat, "2013-07-09")
-	key, _ = entity.EncryptionKey(time2)
+	key, _ = entity.EncryptionKey(time2, nil)
 	if id, expected := key.PublicKey.KeyIdShortString(), "CD3D39FF"; id != expected {
 		t.Errorf("Expected key %s at time %s, but got key %s", expected, time2.Format(timeFormat), id)
 	}
 
 	// Once all the keys have expired, nothing should be returned.
 	time3, _ := time.Parse(timeFormat, "2013-08-01")
-	if key, ok := entity.EncryptionKey(time3); ok {
+	if key, ok := entity.EncryptionKey(time3, nil); ok {
 		t.Errorf("Expected no key at time %s, but got key %s", time3.Format(timeFormat), key.PublicKey.KeyIdShortString())
 	}
 }
@@ -106,7 +113,7 @@ func TestExpiringPrimaryUIDKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	key, found := entity.SigningKey(time1)
+	key, found := entity.SigningKey(time1, nil)
 	if !found {
 		t.Errorf("Signing subkey %s not found at time %s", expectedKeyID, time1.Format(timeFormat))
 	} else if observedKeyID := key.PublicKey.KeyIdShortString(); observedKeyID != expectedKeyID {
@@ -118,7 +125,7 @@ func TestExpiringPrimaryUIDKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if key, ok := entity.SigningKey(time2); ok {
+	if key, ok := entity.SigningKey(time2, nil); ok {
 		t.Errorf("Expected no key at time %s, but got key %s", time2.Format(timeFormat), key.PublicKey.KeyIdShortString())
 	}
 }
@@ -151,7 +158,7 @@ func TestReturnFirstUnexpiredSigningSubkey(t *testing.T) {
 	// Before second signing subkey has expired, it should be returned.
 	time1 := time.Now()
 	expected := subkey2.PublicKey.KeyIdShortString()
-	subkey, found := entity.SigningKey(time1)
+	subkey, found := entity.SigningKey(time1, nil)
 	if !found {
 		t.Errorf("Signing subkey %s not found at time %s", expected, time1.Format(time.UnixDate))
 	}
@@ -163,7 +170,7 @@ func TestReturnFirstUnexpiredSigningSubkey(t *testing.T) {
 	// After the second signing subkey has expired, the first one should be returned.
 	time2 := time1.AddDate(0, 0, 2)
 	expected = subkey1.PublicKey.KeyIdShortString()
-	subkey, found = entity.SigningKey(time2)
+	subkey, found = entity.SigningKey(time2, nil)
 	if !found {
 		t.Errorf("Signing subkey %s not found at time %s", expected, time2.Format(time.UnixDate))
 	}
@@ -341,11 +348,11 @@ func TestRevokedUserID(t *testing.T) {
 	const timeFormat = "2006-01-02"
 	time1, _ := time.Parse(timeFormat, "2020-01-01")
 
-	if _, found := keys[0].SigningKey(time1); !found {
+	if _, found := keys[0].SigningKey(time1, nil); !found {
 		t.Errorf("Expected SigningKey to return a signing key when one User IDs is revoked")
 	}
 
-	if _, found := keys[0].EncryptionKey(time1); !found {
+	if _, found := keys[0].EncryptionKey(time1, nil); !found {
 		t.Errorf("Expected EncryptionKey to return an encryption key when one User IDs is revoked")
 	}
 }
@@ -390,11 +397,11 @@ func TestFirstUserIDRevoked(t *testing.T) {
 	const timeFormat = "2006-01-02"
 	time1, _ := time.Parse(timeFormat, "2020-01-01")
 
-	if _, found := keys[0].SigningKey(time1); !found {
+	if _, found := keys[0].SigningKey(time1, nil); !found {
 		t.Errorf("Expected SigningKey to return a signing key when first User IDs is revoked")
 	}
 
-	if _, found := keys[0].EncryptionKey(time1); !found {
+	if _, found := keys[0].EncryptionKey(time1, nil); !found {
 		t.Errorf("Expected EncryptionKey to return an encryption key when first User IDs is revoked")
 	}
 }
@@ -425,11 +432,11 @@ func TestOnlyUserIDRevoked(t *testing.T) {
 		t.Errorf("expected identity to be revoked")
 	}
 
-	if _, found := keys[0].SigningKey(time.Now()); found {
+	if _, found := keys[0].SigningKey(time.Now(), nil); found {
 		t.Errorf("Expected SigningKey not to return a signing key when the only User IDs is revoked")
 	}
 
-	if _, found := keys[0].EncryptionKey(time.Now()); found {
+	if _, found := keys[0].EncryptionKey(time.Now(), nil); found {
 		t.Errorf("Expected EncryptionKey not to return an encryption key when the only User IDs is revoked")
 	}
 }
@@ -529,12 +536,12 @@ func TestKeyRevocation(t *testing.T) {
 		}
 	}
 
-	signingkey, found := kring[0].SigningKey(time.Now())
+	signingkey, found := kring[0].SigningKey(time.Now(), nil)
 	if found {
 		t.Errorf("Expected SigningKey not to return a signing key for a revoked key, got %X", signingkey.PublicKey.KeyId)
 	}
 
-	encryptionkey, found := kring[0].EncryptionKey(time.Now())
+	encryptionkey, found := kring[0].EncryptionKey(time.Now(), nil)
 	if found {
 		t.Errorf("Expected EncryptionKey not to return an encryption key for a revoked key, got %X", encryptionkey.PublicKey.KeyId)
 	}
@@ -602,12 +609,12 @@ func TestSubkeyRevocation(t *testing.T) {
 			t.Errorf("Expected KeysById to find key %X, but got %d matches", id, len(keys))
 		}
 		if id == encryptionKey {
-			key, found := kring[0].EncryptionKey(time.Now())
+			key, found := kring[0].EncryptionKey(time.Now(), &allowAllAlgorithmsConfig)
 			if !found || key.PublicKey.KeyId != id {
 				t.Errorf("Expected EncryptionKey to find key %X", id)
 			}
 		} else {
-			_, found := kring[0].SigningKeyById(time.Now(), id)
+			_, found := kring[0].SigningKeyById(time.Now(), id, &allowAllAlgorithmsConfig)
 			if !found {
 				t.Errorf("Expected SigningKeyById to find key %X", id)
 			}
@@ -619,7 +626,7 @@ func TestSubkeyRevocation(t *testing.T) {
 		t.Errorf("Expected KeysById to find key %X, but got %d matches", revokedKey, len(keys))
 	}
 
-	signingkey, found := kring[0].SigningKeyById(time.Now(), revokedKey)
+	signingkey, found := kring[0].SigningKeyById(time.Now(), revokedKey, nil)
 	if found {
 		t.Errorf("Expected SigningKeyById not to return an encryption key for a revoked key, got %X", signingkey.PublicKey.KeyId)
 	}
@@ -746,8 +753,10 @@ func TestIdVerification(t *testing.T) {
 
 	const signedIdentity = "Test Key 1 (RSA)"
 	const signerIdentity = "Test Key 2 (RSA, encrypted private key)"
-	config := &packet.Config{SigLifetimeSecs: 128, SigningIdentity: signerIdentity}
-	if err := kring[0].SignIdentity(signedIdentity, kring[1], config); err != nil {
+	config := allowAllAlgorithmsConfig
+	config.SigLifetimeSecs = 128
+	config.SigningIdentity = signerIdentity
+	if err := kring[0].SignIdentity(signedIdentity, kring[1], &config); err != nil {
 		t.Fatal(err)
 	}
 

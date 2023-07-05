@@ -6,6 +6,7 @@ package openpgp
 
 import (
 	goerrors "errors"
+	"fmt"
 	"io"
 	"time"
 
@@ -94,7 +95,7 @@ func shouldPreferIdentity(existingId, potentialNewId *packet.Signature) bool {
 
 // EncryptionKey returns the best candidate Key for encrypting a message to the
 // given Entity.
-func (e *Entity) EncryptionKey(now time.Time) (Key, bool) {
+func (e *Entity) EncryptionKey(now time.Time, config *packet.Config) (Key, bool) {
 	// The primary key has to be valid at time now
 	primarySelfSignature, err := e.VerifyPrimaryKey(now)
 	if err != nil { // primary key is not valid
@@ -109,6 +110,7 @@ func (e *Entity) EncryptionKey(now time.Time) (Key, bool) {
 		subkeySelfSig, err := subkey.Verify(now) // subkey has to be valid at time now
 		if err == nil &&
 			isValidEncryptionKey(subkeySelfSig, subkey.PublicKey.PubKeyAlgo) &&
+			checkKeyRequirements(subkey.PublicKey, config) == nil &&
 			(maxTime.IsZero() || subkeySelfSig.CreationTime.Unix() >= maxTime.Unix()) {
 			candidateSubkey = i
 			selectedSubkeySelfSig = subkeySelfSig
@@ -129,7 +131,8 @@ func (e *Entity) EncryptionKey(now time.Time) (Key, bool) {
 
 	// If we don't have any subkeys for encryption and the primary key
 	// is marked as OK to encrypt with, then we can use it.
-	if isValidEncryptionKey(primarySelfSignature, e.PrimaryKey.PubKeyAlgo) {
+	if isValidEncryptionKey(primarySelfSignature, e.PrimaryKey.PubKeyAlgo) &&
+		checkKeyRequirements(e.PrimaryKey, config) == nil {
 		return Key{
 			Entity:               e,
 			PrimarySelfSignature: primarySelfSignature,
@@ -168,31 +171,31 @@ func (e *Entity) DecryptionKeys(id uint64, date time.Time) (keys []Key) {
 
 // CertificationKey return the best candidate Key for certifying a key with this
 // Entity.
-func (e *Entity) CertificationKey(now time.Time) (Key, bool) {
-	return e.CertificationKeyById(now, 0)
+func (e *Entity) CertificationKey(now time.Time, config *packet.Config) (Key, bool) {
+	return e.CertificationKeyById(now, 0, config)
 }
 
 // CertificationKeyById return the Key for key certification with this
 // Entity and keyID.
-func (e *Entity) CertificationKeyById(now time.Time, id uint64) (Key, bool) {
-	key, err := e.signingKeyByIdUsage(now, id, packet.KeyFlagSign)
+func (e *Entity) CertificationKeyById(now time.Time, id uint64, config *packet.Config) (Key, bool) {
+	key, err := e.signingKeyByIdUsage(now, id, packet.KeyFlagSign, config)
 	return key, err == nil
 }
 
 // SigningKey return the best candidate Key for signing a message with this
 // Entity.
-func (e *Entity) SigningKey(now time.Time) (Key, bool) {
-	return e.SigningKeyById(now, 0)
+func (e *Entity) SigningKey(now time.Time, config *packet.Config) (Key, bool) {
+	return e.SigningKeyById(now, 0, config)
 }
 
 // SigningKeyById return the Key for signing a message with this
 // Entity and keyID.
-func (e *Entity) SigningKeyById(now time.Time, id uint64) (Key, bool) {
-	key, err := e.signingKeyByIdUsage(now, id, packet.KeyFlagSign)
+func (e *Entity) SigningKeyById(now time.Time, id uint64, config *packet.Config) (Key, bool) {
+	key, err := e.signingKeyByIdUsage(now, id, packet.KeyFlagSign, config)
 	return key, err == nil
 }
 
-func (e *Entity) signingKeyByIdUsage(now time.Time, id uint64, flags int) (Key, error) {
+func (e *Entity) signingKeyByIdUsage(now time.Time, id uint64, flags int, config *packet.Config) (Key, error) {
 	// Fail to find any signing key if the...
 	primarySelfSignature, err := e.VerifyPrimaryKey(now)
 	if err != nil {
@@ -208,6 +211,7 @@ func (e *Entity) signingKeyByIdUsage(now time.Time, id uint64, flags int) (Key, 
 		if err == nil &&
 			(flags&packet.KeyFlagCertify == 0 || isValidCertificationKey(subkeySelfSig, subkey.PublicKey.PubKeyAlgo)) &&
 			(flags&packet.KeyFlagSign == 0 || isValidSigningKey(subkeySelfSig, subkey.PublicKey.PubKeyAlgo)) &&
+			checkKeyRequirements(subkey.PublicKey, config) == nil &&
 			(maxTime.IsZero() || subkeySelfSig.CreationTime.Unix() >= maxTime.Unix()) &&
 			(id == 0 || subkey.PublicKey.KeyId == id) {
 			candidateSubkey = idx
@@ -231,6 +235,7 @@ func (e *Entity) signingKeyByIdUsage(now time.Time, id uint64, flags int) (Key, 
 	// is marked as OK to sign with, then we can use it.
 	if (flags&packet.KeyFlagCertify == 0 || isValidCertificationKey(primarySelfSignature, e.PrimaryKey.PubKeyAlgo)) &&
 		(flags&packet.KeyFlagSign == 0 || isValidSigningKey(primarySelfSignature, e.PrimaryKey.PubKeyAlgo)) &&
+		checkKeyRequirements(e.PrimaryKey, config) == nil &&
 		(id == 0 || e.PrimaryKey.KeyId == id) {
 		return Key{
 			Entity:               e,
@@ -726,6 +731,27 @@ func (k *Key) IsPrimary() bool {
 		return k.PublicKey == k.Entity.PrimaryKey
 	}
 	return k.PrimarySelfSignature == k.SelfSignature
+}
+
+// checkKeyRequirements
+func checkKeyRequirements(usedKey *packet.PublicKey, config *packet.Config) error {
+	algo := usedKey.PubKeyAlgo
+	if config.RejectPublicKeyAlgorithm(algo) {
+		return errors.WeakAlgorithmError("public key algorithm " + string(algo))
+	}
+	switch algo {
+	case packet.PubKeyAlgoRSA, packet.PubKeyAlgoRSASignOnly:
+		length, err := usedKey.BitLength()
+		if err != nil || length < config.MinimumRSABits() {
+			return errors.WeakAlgorithmError(fmt.Sprintf("minimum rsa length is %d got %d", config.MinimumRSABits(), length))
+		}
+	case packet.PubKeyAlgoECDH, packet.PubKeyAlgoEdDSA, packet.PubKeyAlgoECDSA:
+		curve, err := usedKey.Curve()
+		if err != nil || config.RejectCurve(curve) {
+			return errors.WeakAlgorithmError("elliptic curve " + curve)
+		}
+	}
+	return nil
 }
 
 func isValidSigningKey(signature *packet.Signature, algo packet.PublicKeyAlgorithm) bool {

@@ -27,7 +27,7 @@ func TestSignDetached(t *testing.T) {
 	kring, _ := ReadKeyRing(readerFromHex(testKeys1And2PrivateHex))
 	out := bytes.NewBuffer(nil)
 	message := bytes.NewBufferString(signedInput)
-	err := DetachSign(out, kring[:1], message, nil)
+	err := DetachSign(out, kring[:1], message, &allowAllAlgorithmsConfig)
 	if err != nil {
 		t.Error(err)
 	}
@@ -39,7 +39,7 @@ func TestSignTextDetached(t *testing.T) {
 	kring, _ := ReadKeyRing(readerFromHex(testKeys1And2PrivateHex))
 	out := bytes.NewBuffer(nil)
 	message := bytes.NewBufferString(signedInput)
-	err := DetachSignText(out, kring[:1], message, nil)
+	err := DetachSignText(out, kring[:1], message, &allowAllAlgorithmsConfig)
 	if err != nil {
 		t.Error(err)
 	}
@@ -51,7 +51,7 @@ func TestSignDetachedDSA(t *testing.T) {
 	kring, _ := ReadKeyRing(readerFromHex(dsaTestKeyPrivateHex))
 	out := bytes.NewBuffer(nil)
 	message := bytes.NewBufferString(signedInput)
-	err := DetachSign(out, kring[:1], message, nil)
+	err := DetachSign(out, kring[:1], message, &allowAllAlgorithmsConfig)
 	if err != nil {
 		t.Error(err)
 	}
@@ -77,23 +77,21 @@ func TestSignDetachedWithNotation(t *testing.T) {
 	kring, _ := ReadKeyRing(readerFromHex(testKeys1And2PrivateHex))
 	signature := bytes.NewBuffer(nil)
 	message := bytes.NewBufferString(signedInput)
-	config := &packet.Config{
-		SignatureNotations: []*packet.Notation{
-			{
-				Name:            "test@example.com",
-				Value:           []byte("test"),
-				IsHumanReadable: true,
-			},
+	config := allowAllAlgorithmsConfig
+	config.SignatureNotations = []*packet.Notation{
+		{
+			Name:            "test@example.com",
+			Value:           []byte("test"),
+			IsHumanReadable: true,
 		},
 	}
-	err := DetachSign(signature, kring[:1], message, config)
+	err := DetachSign(signature, kring[:1], message, &config)
 	if err != nil {
 		t.Error(err)
 	}
 
 	signed := bytes.NewBufferString(signedInput)
-	config = &packet.Config{}
-	sig, signer, err := VerifyDetachedSignature(kring, signed, signature, config)
+	sig, signer, err := VerifyDetachedSignature(kring, signed, signature, &allowAllAlgorithmsConfig)
 	if err != nil {
 		t.Errorf("signature error: %s", err)
 		return
@@ -127,28 +125,26 @@ func TestSignDetachedWithCriticalNotation(t *testing.T) {
 	kring, _ := ReadKeyRing(readerFromHex(testKeys1And2PrivateHex))
 	signature := bytes.NewBuffer(nil)
 	message := bytes.NewBufferString(signedInput)
-	config := &packet.Config{
-		SignatureNotations: []*packet.Notation{
-			{
-				Name:            "test@example.com",
-				Value:           []byte("test"),
-				IsHumanReadable: true,
-				IsCritical:      true,
-			},
+	config := allowAllAlgorithmsConfig
+	config.SignatureNotations = []*packet.Notation{
+		{
+			Name:            "test@example.com",
+			Value:           []byte("test"),
+			IsHumanReadable: true,
+			IsCritical:      true,
 		},
 	}
-	err := DetachSign(signature, kring[:1], message, config)
+	err := DetachSign(signature, kring[:1], message, &config)
 	if err != nil {
 		t.Error(err)
 	}
 
 	signed := bytes.NewBufferString(signedInput)
-	config = &packet.Config{
-		KnownNotations: map[string]bool{
-			"test@example.com": true,
-		},
+	config = allowAllAlgorithmsConfig
+	config.KnownNotations = map[string]bool{
+		"test@example.com": true,
 	}
-	sig, signer, err := VerifyDetachedSignature(kring, signed, signature, config)
+	sig, signer, err := VerifyDetachedSignature(kring, signed, signature, &config)
 	if err != nil {
 		t.Errorf("signature error: %s", err)
 		return
@@ -279,11 +275,10 @@ func TestEncryptWithCompression(t *testing.T) {
 	}
 
 	buf := new(bytes.Buffer)
-	var config = &packet.Config{
-		DefaultCompressionAlgo: packet.CompressionZIP,
-		CompressionConfig:      &packet.CompressionConfig{Level: -1},
-	}
-	w, err := Encrypt(buf, kring[:1], nil, nil, nil /* no hints */, config)
+	config := allowAllAlgorithmsConfig
+	config.DefaultCompressionAlgo = packet.CompressionZIP
+	config.CompressionConfig = &packet.CompressionConfig{Level: -1}
+	w, err := Encrypt(buf, kring[:1], nil, nil, nil /* no hints */, &config)
 	if err != nil {
 		t.Errorf("error in encrypting plaintext: %s", err)
 		return
@@ -708,10 +703,9 @@ func TestEncryption(t *testing.T) {
 		compAlgo := compAlgos[mathrand.Intn(len(compAlgos))]
 		level := mathrand.Intn(11) - 1
 		compConf := &packet.CompressionConfig{Level: level}
-		var config = &packet.Config{
-			DefaultCompressionAlgo: compAlgo,
-			CompressionConfig:      compConf,
-		}
+		config := allowAllAlgorithmsConfig
+		config.DefaultCompressionAlgo = compAlgo
+		config.CompressionConfig = compConf
 
 		// Flip coin to enable AEAD mode
 		if mathrand.Int()%2 == 0 {
@@ -724,7 +718,7 @@ func TestEncryption(t *testing.T) {
 		if signed != nil {
 			signers = []*Entity{signed}
 		}
-		w, err := Encrypt(buf, kring[:1], nil, signers, nil /* no hints */, config)
+		w, err := Encrypt(buf, kring[:1], nil, signers, nil /* no hints */, &config)
 		if err != nil && config.AEAD() != nil && !test.okV6 {
 			// ElGamal is not allowed with v6
 			continue
@@ -747,7 +741,7 @@ func TestEncryption(t *testing.T) {
 			continue
 		}
 
-		md, err := ReadMessage(buf, kring, nil /* no prompt */, config)
+		md, err := ReadMessage(buf, kring, nil /* no prompt */, &config)
 		if err != nil {
 			t.Errorf("#%d: error reading message: %s", i, err)
 			continue
@@ -755,7 +749,7 @@ func TestEncryption(t *testing.T) {
 
 		testTime, _ := time.Parse("2006-01-02", "2013-07-01")
 		if test.isSigned {
-			signKey, _ := kring[0].SigningKey(testTime)
+			signKey, _ := kring[0].SigningKey(testTime, &allowAllAlgorithmsConfig)
 			expectedKeyId := signKey.PublicKey.KeyId
 			if len(md.SignatureCandidates) < 1 {
 				t.Error("no candidate signature found")
@@ -774,7 +768,7 @@ func TestEncryption(t *testing.T) {
 			continue
 		}
 
-		encryptKey, _ := kring[0].EncryptionKey(testTime)
+		encryptKey, _ := kring[0].EncryptionKey(testTime, &allowAllAlgorithmsConfig)
 		expectedKeyId := encryptKey.PublicKey.KeyId
 		if len(md.EncryptedToKeyIds) != 1 || md.EncryptedToKeyIds[0] != expectedKeyId {
 			t.Errorf("#%d: expected message to be encrypted to %v, but got %#v", i, expectedKeyId, md.EncryptedToKeyIds)
@@ -837,7 +831,7 @@ func TestSigning(t *testing.T) {
 		signed := kring[0]
 
 		buf := new(bytes.Buffer)
-		w, err := Sign(buf, []*Entity{signed}, nil /* no hints */, nil)
+		w, err := Sign(buf, []*Entity{signed}, nil /* no hints */, &allowAllAlgorithmsConfig)
 		if err != nil {
 			t.Errorf("#%d: error in Sign: %s", i, err)
 			continue
@@ -855,14 +849,14 @@ func TestSigning(t *testing.T) {
 			continue
 		}
 
-		md, err := ReadMessage(buf, kring, nil /* no prompt */, nil)
+		md, err := ReadMessage(buf, kring, nil /* no prompt */, &allowAllAlgorithmsConfig)
 		if err != nil {
 			t.Errorf("#%d: error reading message: %s", i, err)
 			continue
 		}
 
 		testTime, _ := time.Parse("2006-01-02", "2022-12-01")
-		signKey, _ := kring[0].SigningKey(testTime)
+		signKey, _ := kring[0].SigningKey(testTime, &allowAllAlgorithmsConfig)
 		expectedKeyId := signKey.PublicKey.KeyId
 		if len(md.SignatureCandidates) < 1 {
 			t.Error("expected a signature candidate")

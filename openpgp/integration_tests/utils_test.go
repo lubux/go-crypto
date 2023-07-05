@@ -286,15 +286,18 @@ func randConfig() *packet.Config {
 	}
 
 	return &packet.Config{
-		V6Keys:                 v6,
-		Rand:                   rand.Reader,
-		DefaultHash:            hash,
-		DefaultCipher:          ciph,
-		DefaultCompressionAlgo: compAlgo,
-		CompressionConfig:      compConf,
-		S2KConfig:              s2kConf,
-		RSABits:                rsaBits,
-		Algorithm:              pkAlgo,
-		AEADConfig:             &aeadConf,
+		V6Keys:                    v6,
+		Rand:                      rand.Reader,
+		DefaultHash:               hash,
+		DefaultCipher:             ciph,
+		DefaultCompressionAlgo:    compAlgo,
+		CompressionConfig:         compConf,
+		S2KConfig:                 s2kConf,
+		RSABits:                   rsaBits,
+		Algorithm:                 pkAlgo,
+		AEADConfig:                &aeadConf,
+		RejectPublicKeyAlgorithms: map[packet.PublicKeyAlgorithm]bool{},
+		RejectCurves:              map[packet.Curve]bool{},
+		MinRSABits:                512,
 	}
 }

@@ -157,7 +157,7 @@ func (i *Identity) ReSign(config *packet.Config) error {
 // necessary.
 // If config is nil, sensible defaults will be used.
 func (ident *Identity) SignIdentity(signer *Entity, config *packet.Config) error {
-	certificationKey, ok := signer.CertificationKey(config.Now())
+	certificationKey, ok := signer.CertificationKey(config.Now(), config)
 	if !ok {
 		return errors.InvalidArgumentError("no valid certification key found")
 	}

@@ -992,6 +992,26 @@ func (pk *PublicKey) BitLength() (bitLength uint16, err error) {
 	return
 }
 
+// Curve returns the used elliptic curve of this public key.
+// Returns an error if no elliptic curve is used.
+func (pk *PublicKey) Curve() (curve Curve, err error) {
+	switch pk.PubKeyAlgo {
+	case PubKeyAlgoECDSA, PubKeyAlgoECDH, PubKeyAlgoEdDSA:
+		curveInfo := ecc.FindByOid(pk.oid)
+		if curveInfo == nil {
+			return "", errors.UnsupportedError(fmt.Sprintf("unknown oid: %x", pk.oid))
+		}
+		curve = Curve(curveInfo.GenName)
+	case PubKeyAlgoEd25519, PubKeyAlgoX25519:
+		curve = Curve25519
+	case PubKeyAlgoEd448, PubKeyAlgoX448:
+		curve = Curve448
+	default:
+		err = errors.InvalidArgumentError("public key does not operate with an elliptic curve")
+	}
+	return
+}
+
 // KeyExpired returns whether sig is a self-signature of a key that has
 // expired or is created in the future.
 func (pk *PublicKey) KeyExpired(sig *Signature, currentTime time.Time) bool {

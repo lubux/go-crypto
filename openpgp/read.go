@@ -521,7 +521,7 @@ func (scr *signatureCheckReader) Read(buf []byte) (int, error) {
 					scr.md.SignatureError = candidate.SignatureError
 				} else {
 					// Verify and retrieve signing key at signature creation time
-					key, err := candidate.SignedByEntity.signingKeyByIdUsage(sig.CreationTime, candidate.IssuerKeyId, packet.KeyFlagSign)
+					key, err := candidate.SignedByEntity.signingKeyByIdUsage(sig.CreationTime, candidate.IssuerKeyId, packet.KeyFlagSign, scr.config)
 					if err != nil {
 						candidate.SignatureError = err
 						continue
@@ -677,6 +677,10 @@ func verifyDetachedSignatureReader(keyring KeyRing, signed, signature io.Reader,
 func checkSignatureDetails(verifiedKey *Key, signature *packet.Signature, config *packet.Config) error {
 	var collectedErrors []error
 	now := config.Now()
+
+	if config.RejectMessageHashAlgorithm(signature.Hash) {
+		return errors.SignatureError("insecure message hash algorithm: " + signature.Hash.String())
+	}
 
 	if verifiedKey.PublicKey.CreationTime.Unix() > signature.CreationTime.Unix() {
 		collectedErrors = append(collectedErrors, errors.ErrSignatureOlderThanKey)

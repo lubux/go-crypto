@@ -125,7 +125,7 @@ func (s detachSignWriter) Close() error {
 func detachSignWithWriter(w io.Writer, signers []*Entity, sigType packet.SignatureType, config *packet.Config) (ptWriter io.WriteCloser, err error) {
 	var detachSignContexts []*detachSignContext
 	for _, signer := range signers {
-		signingKey, ok := signer.SigningKeyById(config.Now(), config.SigningKey())
+		signingKey, ok := signer.SigningKeyById(config.Now(), config.SigningKey(), config)
 		if !ok {
 			return nil, errors.InvalidArgumentError("no valid signing keys")
 		}
@@ -381,7 +381,7 @@ func writeAndSign(payload io.WriteCloser, candidateHashes [][]uint8, signEntitie
 		if signEntity == nil {
 			continue
 		}
-		signKey, ok := signEntity.SigningKeyById(config.Now(), config.SigningKey())
+		signKey, ok := signEntity.SigningKeyById(config.Now(), config.SigningKey(), config)
 		if !ok {
 			return nil, errors.InvalidArgumentError("no valid signing keys")
 		}
@@ -530,7 +530,7 @@ func encrypt(
 
 	for i, recipient := range append(to, toHidden...) {
 		var ok bool
-		encryptKeys[i], ok = recipient.EncryptionKey(config.Now())
+		encryptKeys[i], ok = recipient.EncryptionKey(config.Now(), config)
 		if !ok {
 			return nil, errors.InvalidArgumentError("cannot encrypt a message to key id " + strconv.FormatUint(to[i].PrimaryKey.KeyId, 16) + " because it has no valid encryption keys")
 		}
