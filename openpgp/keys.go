@@ -102,6 +102,11 @@ func (e *Entity) EncryptionKey(now time.Time, config *packet.Config) (Key, bool)
 		return Key{}, false
 	}
 
+	if checkKeyRequirements(e.PrimaryKey, config) != nil {
+		// The primary key produces weak signatures
+		return Key{}, false
+	}
+
 	// Iterate the keys to find the newest, unexpired one
 	candidateSubkey := -1
 	var maxTime time.Time
@@ -131,8 +136,7 @@ func (e *Entity) EncryptionKey(now time.Time, config *packet.Config) (Key, bool)
 
 	// If we don't have any subkeys for encryption and the primary key
 	// is marked as OK to encrypt with, then we can use it.
-	if isValidEncryptionKey(primarySelfSignature, e.PrimaryKey.PubKeyAlgo) &&
-		checkKeyRequirements(e.PrimaryKey, config) == nil {
+	if isValidEncryptionKey(primarySelfSignature, e.PrimaryKey.PubKeyAlgo) {
 		return Key{
 			Entity:               e,
 			PrimarySelfSignature: primarySelfSignature,
@@ -202,6 +206,11 @@ func (e *Entity) signingKeyByIdUsage(now time.Time, id uint64, flags int, config
 		return Key{}, err
 	}
 
+	if err = checkKeyRequirements(e.PrimaryKey, config); err != nil {
+		// The primary key produces weak signatures
+		return Key{}, err
+	}
+
 	// Iterate the keys to find the newest, unexpired one
 	candidateSubkey := -1
 	var maxTime time.Time
@@ -235,7 +244,6 @@ func (e *Entity) signingKeyByIdUsage(now time.Time, id uint64, flags int, config
 	// is marked as OK to sign with, then we can use it.
 	if (flags&packet.KeyFlagCertify == 0 || isValidCertificationKey(primarySelfSignature, e.PrimaryKey.PubKeyAlgo)) &&
 		(flags&packet.KeyFlagSign == 0 || isValidSigningKey(primarySelfSignature, e.PrimaryKey.PubKeyAlgo)) &&
-		checkKeyRequirements(e.PrimaryKey, config) == nil &&
 		(id == 0 || e.PrimaryKey.KeyId == id) {
 		return Key{
 			Entity:               e,
