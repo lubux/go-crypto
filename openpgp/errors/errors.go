@@ -120,3 +120,10 @@ type ErrDummyPrivateKey string
 func (dke ErrDummyPrivateKey) Error() string {
 	return "openpgp: s2k GNU dummy key: " + string(dke)
 }
+
+// ErrMalformedMessage results when the packet sequence is incorrect
+type ErrMalformedMessage string
+
+func (dke ErrMalformedMessage) Error() string {
+	return "openpgp: malformed message " + string(dke)
+}

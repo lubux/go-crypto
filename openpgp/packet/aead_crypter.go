@@ -88,17 +88,20 @@ func (ar *aeadDecrypter) Read(dst []byte) (n int, err error) {
 	if errRead != nil && errRead != io.EOF {
 		return 0, errRead
 	}
-	decrypted, errChunk := ar.openChunk(cipherChunk)
-	if errChunk != nil {
-		return 0, errChunk
-	}
 
-	// Return decrypted bytes, buffering if necessary
-	if len(dst) < len(decrypted) {
-		n = copy(dst, decrypted[:len(dst)])
-		ar.buffer.Write(decrypted[len(dst):])
-	} else {
-		n = copy(dst, decrypted)
+	if len(cipherChunk) > 0 {
+		decrypted, errChunk := ar.openChunk(cipherChunk)
+		if errChunk != nil {
+			return 0, errChunk
+		}
+
+		// Return decrypted bytes, buffering if necessary
+		if len(dst) < len(decrypted) {
+			n = copy(dst, decrypted[:len(dst)])
+			ar.buffer.Write(decrypted[len(dst):])
+		} else {
+			n = copy(dst, decrypted)
+		}
 	}
 
 	// Check final authentication tag
