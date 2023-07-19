@@ -468,7 +468,7 @@ func writeAndSign(payload io.WriteCloser, candidateHashes [][]uint8, signEntitie
 		if hints.IsUTF8 {
 			metadata.Format = 'u'
 		}
-		return signatureWriter{payload, literalData, signers, sigType, config, metadata, intendedRecipients}, nil
+		return signatureWriter{payload, literalData, signers, sigType, config, metadata, intendedRecipients, 0}, nil
 	}
 	return literalData, nil
 }
@@ -725,6 +725,7 @@ type signatureWriter struct {
 	config             *packet.Config
 	metadata           *packet.LiteralData // V5 signatures protect document metadata
 	intendedRecipients []*packet.Recipient
+	flag               int
 }
 
 type signatureContext struct {
@@ -745,8 +746,7 @@ func (s signatureWriter) Write(data []byte) (int, error) {
 	case packet.SigTypeBinary:
 		return s.literalData.Write(data)
 	case packet.SigTypeText:
-		flag := 0
-		return writeCanonical(s.literalData, data, &flag)
+		return writeCanonical(s.literalData, data, &s.flag)
 	}
 	return 0, errors.UnsupportedError("unsupported signature type: " + strconv.Itoa(int(s.sigType)))
 }
