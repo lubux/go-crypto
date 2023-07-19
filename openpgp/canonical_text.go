@@ -15,6 +15,12 @@ func NewCanonicalTextHash(h hash.Hash) hash.Hash {
 	return &canonicalTextHash{h, 0}
 }
 
+// NewCanonicalTextWriteCloser reformats text written to it into the canonical
+// form. See RFC 4880, section 5.2.1.
+func NewCanonicalTextWriteCloser(w io.WriteCloser) io.WriteCloser {
+	return &canonicalTextWriteCloser{w, 0}
+}
+
 type canonicalTextHash struct {
 	h hash.Hash
 	s int
@@ -62,4 +68,17 @@ func (cth *canonicalTextHash) Size() int {
 
 func (cth *canonicalTextHash) BlockSize() int {
 	return cth.h.BlockSize()
+}
+
+type canonicalTextWriteCloser struct {
+	w io.WriteCloser
+	s int
+}
+
+func (tw *canonicalTextWriteCloser) Write(buf []byte) (int, error) {
+	return writeCanonical(tw.w, buf, &tw.s)
+}
+
+func (tw *canonicalTextWriteCloser) Close() error {
+	return tw.w.Close()
 }
