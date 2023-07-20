@@ -5,6 +5,7 @@
 package openpgp
 
 import (
+	"bytes"
 	"hash"
 	"io"
 )
@@ -19,6 +20,12 @@ func NewCanonicalTextHash(h hash.Hash) hash.Hash {
 // form. See RFC 4880, section 5.2.1.
 func NewCanonicalTextWriteCloser(w io.WriteCloser) io.WriteCloser {
 	return &canonicalTextWriteCloser{w, 0}
+}
+
+// NewCanonicalTextReader reformats text read from it into the canonical
+// form. See RFC 4880, section 5.2.1.
+func NewCanonicalTextReader(r io.Reader) io.Reader {
+	return &canonicalTextReader{r, bytes.NewBuffer(nil), 0}
 }
 
 type canonicalTextHash struct {
@@ -81,4 +88,24 @@ func (tw *canonicalTextWriteCloser) Write(buf []byte) (int, error) {
 
 func (tw *canonicalTextWriteCloser) Close() error {
 	return tw.w.Close()
+}
+
+type canonicalTextReader struct {
+	r      io.Reader
+	buffer *bytes.Buffer
+	s      int
+}
+
+func (tr *canonicalTextReader) Read(buf []byte) (int, error) {
+	if tr.buffer.Len() > 0 {
+		return tr.buffer.Read(buf)
+	}
+	n, err := tr.r.Read(buf)
+	if err != nil {
+		return n, err
+	}
+	if _, err = writeCanonical(tr.buffer, buf[:n], &tr.s); err != nil {
+		return 0, err
+	}
+	return tr.buffer.Read(buf)
 }
